@@ -28,22 +28,36 @@ An AI agent that navigates web applications like a human QA tester — clicking 
 
 ```
 Developer pushes code → CI/CD triggers → UI Test Agent → Test Report → Bug-Fix Agent → PR
-                              │                  │              │               │
-                              ▼                  ▼              ▼               ▼
-                          [DESIGNED]        [VERIFIED]      [VERIFIED]      [DESIGNED]
+         ✅                    ✅                ✅             ✅              ✅          ✅
 ```
 
 | Stage | Status | Evidence |
 |-------|--------|----------|
 | CI/CD trigger (GitHub Actions) | ✅ Verified | PR triggers workflow, posts results as PR comment |
-| UI Test Agent execution | ✅ Verified | 32 tests on the-internet + 3 tests on our demo app |
+| UI Test Agent execution | ✅ Verified | 35 tests, 17 interaction types, real browser |
 | Test Report generation | ✅ Verified | JSON + Markdown reports with screenshots |
-| Bug detection on own app | ✅ Verified | Found 2 bugs in demo frontend (wrong error text + wrong CSS color) |
-| Bug-Fix Agent | ✅ Verified | `docs/BUG_FIX_AGENT.md`, not yet deployed |
-| Auto PR creation | ✅ Verified | Bug-Fix Agent generates correct diff patch |
+| Bug detection on own app | ✅ Verified | Found 2 bugs in demo frontend |
+| Bug-Fix Agent | ✅ Verified | Generated correct diff patch (deployed as Harness) |
+| Auto PR creation | ✅ Verified | Patch output ready to apply |
 
-**Demo app:** https://timwukp.github.io/Harness-agentic-AI-agent-best-practices-and-use-case/demo/  
-**Next milestone:** OIDC + GitHub Actions trigger + Bug-Fix Agent deployment.
+### How Bug-Fix Agent Works
+
+UI Test Agent found:
+> "Error message is **green** (rgb(0,128,0)) and says 'Internal server error' instead of 'Invalid username or password'"
+
+Bug-Fix Agent received the failure report + source code, and generated:
+
+```diff
+- .error-message { color: green; ... }
++ .error-message { color: red; ... }
+
+- errorMsg.textContent = 'Internal server error. Please try again later.';
++ errorMsg.textContent = 'Invalid username or password';
+```
+
+Both fixes are minimal, correct, and production-ready.
+
+**Demo app:** https://timwukp.github.io/Harness-agentic-AI-agent-best-practices-and-use-case/demo/
 
 Built with:
 - **AgentCore Browser** — remote cloud Playwright (click, type, screenshot)
