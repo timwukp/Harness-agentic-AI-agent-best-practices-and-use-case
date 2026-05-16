@@ -215,7 +215,7 @@ All AgentCore Harness features are designed into the project. See docs/ARCHITECT
 **Start here. All previous work is complete.**
 
 ### Prerequisites (already done)
-- ✅ AWS Account: us-east-1, user timwu
+- ✅ AWS Account: us-east-1
 - ✅ AgentCore CLI installed (v0.14.0)
 - ✅ Runtime deployed: `uitestagent_uitestagent` (in Runtimes)
 - ✅ Harness deployed: `UITestAgentHarness` (in Harness Preview)
@@ -242,7 +242,7 @@ All AgentCore Harness features are designed into the project. See docs/ARCHITECT
 
 ### Key Commands
 ```bash
-cd /Users/timwu/Downloads/aws-harness-agentcore-use-case
+cd /path/to/project
 export PATH="$HOME/.local/bin:$PATH"
 AWS_REGION=us-east-1
 

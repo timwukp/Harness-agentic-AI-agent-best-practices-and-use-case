@@ -16,8 +16,8 @@ import uuid
 import subprocess
 
 REGION = "us-east-1"
-UI_TEST_HARNESS = "arn:aws:bedrock-agentcore:us-east-1:677207132843:harness/UITestAgentHarness-zIefA987hf"
-BUG_FIX_HARNESS = "arn:aws:bedrock-agentcore:us-east-1:677207132843:harness/BugFixAgentHarness-F05tJBICHZ"
+UI_TEST_HARNESS = "arn:aws:bedrock-agentcore:us-east-1:ACCOUNT_ID:harness/<UI_TEST_HARNESS_ID>"
+BUG_FIX_HARNESS = "arn:aws:bedrock-agentcore:us-east-1:ACCOUNT_ID:harness/<BUG_FIX_HARNESS_ID>"
 TARGET_URL = "https://timwukp.github.io/Harness-agentic-AI-agent-best-practices-and-use-case/demo/index.html"
 
 
