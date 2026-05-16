@@ -422,3 +422,66 @@ fix_client.invoke_harness(
 ---
 
 *Last updated: 2026-05-16*
+
+---
+
+## Deployment Modes
+
+This project supports **two deployment modes**. Both are functionally equivalent but differ in how they're managed:
+
+### Mode 1: AgentCore Runtime (Code-based)
+
+You write `main.py` with Strands SDK, deploy via `agentcore deploy`.
+
+```bash
+agentcore create --name uitestagent --framework strands --model-provider bedrock --memory longAndShortTerm
+agentcore deploy
+agentcore invoke --session-id "$(uuidgen)" "Test the login page..."
+```
+
+**Pros:** Full control over agent logic, custom tools, complex orchestration  
+**Cons:** Must write and maintain Python code  
+**Console location:** AgentCore → Runtimes  
+**Files:** `main.py`, `pyproject.toml`, `memory/`, `model/`
+
+### Mode 2: AgentCore Harness (Declarative)
+
+No agent code. Define model, tools, and prompt via API or CLI.
+
+```python
+import boto3
+client = boto3.client("bedrock-agentcore-control", region_name="us-east-1")
+client.create_harness(
+    harnessName="UITestAgentHarness",
+    executionRoleArn="<ROLE_ARN>",
+    systemPrompt=[{"text": "You are an expert QA tester..."}],
+    tools=[
+        {"type": "agentcore_browser", "name": "browser"},
+        {"type": "agentcore_code_interpreter", "name": "code_interpreter"},
+    ],
+    maxIterations=100,
+    timeoutSeconds=1800,
+)
+```
+
+**Pros:** Zero code, config-driven, switch models/tools without redeploy  
+**Cons:** Less control over orchestration logic  
+**Console location:** AgentCore → Harness (Preview)  
+**Files:** `deploy_harness.py` (one-time setup script)
+
+### When to Use Which
+
+| Scenario | Use |
+|----------|-----|
+| Need custom tool logic or multi-agent coordination | Runtime |
+| Want fastest setup, no code maintenance | Harness |
+| Need to experiment with different models/prompts quickly | Harness |
+| Need to embed agent in existing application | Runtime |
+| Production with minimal ops overhead | Harness |
+
+### Deployment Scripts
+
+| Script | Mode | Command |
+|--------|------|---------|
+| `deploy.sh` | Runtime | `./deploy.sh` |
+| `deploy_harness.py` | Harness | `python deploy_harness.py --role-arn <ARN>` |
