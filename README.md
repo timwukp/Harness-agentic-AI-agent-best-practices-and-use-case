@@ -35,7 +35,7 @@ Developer pushes code → CI/CD triggers → UI Test Agent → Test Report → B
 
 | Stage | Status | Evidence |
 |-------|--------|----------|
-| CI/CD trigger (GitHub Actions) | 📐 Designed | `.github/workflows/ui-test.yml` written, not yet triggered |
+| CI/CD trigger (GitHub Actions) | ✅ Verified | PR triggers workflow, posts results as PR comment |
 | UI Test Agent execution | ✅ Verified | 32 tests on the-internet + 3 tests on our demo app |
 | Test Report generation | ✅ Verified | JSON + Markdown reports with screenshots |
 | Bug detection on own app | ✅ Verified | Found 2 bugs in demo frontend (wrong error text + wrong CSS color) |
