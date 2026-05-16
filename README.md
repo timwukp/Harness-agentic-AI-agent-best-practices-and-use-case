@@ -37,6 +37,23 @@ Built with:
 - **Strands Agents SDK** — agent framework
 - **AgentCore CLI** — deployment tooling
 
+## Deployment Modes
+
+| Mode | Description | Console Location |
+|------|-------------|-----------------|
+| **Runtime** (code-based) | Write `main.py` with Strands SDK | AgentCore → Runtimes |
+| **Harness** (declarative) | Zero code, JSON config only | AgentCore → Harness (Preview) |
+
+```bash
+# Mode 1: Runtime (full control)
+agentcore deploy
+
+# Mode 2: Harness (zero code)
+python app/ui-test-agent/deploy_harness.py --role-arn <EXECUTION_ROLE_ARN>
+```
+
+See [Design Document — Deployment Modes](docs/DESIGN_UI_TEST_AGENT.md#deployment-modes) for detailed comparison.
+
 ## Quick Start
 
 ```bash
