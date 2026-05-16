@@ -11,7 +11,7 @@ Production-ready AI agent that replaces human QA testers, built on **Amazon Bedr
 
 An AI agent that navigates web applications like a human QA tester — clicking buttons, filling forms, scrolling, hovering, dragging — then reports PASS/FAIL with evidence.
 
-**Proven:** 32 tests | 31 PASS | 1 real bug detected | 17 interaction types covered
+**Verified:** 32 tests | 31 PASS | 1 real bug detected | 17 interaction types | Browser + Code Interpreter working
 
 ### Interaction Types Tested
 
@@ -28,7 +28,20 @@ An AI agent that navigates web applications like a human QA tester — clicking 
 
 ```
 Developer pushes code → CI/CD triggers → UI Test Agent → Test Report → Bug-Fix Agent → PR
+                              │                  │              │               │
+                              ▼                  ▼              ▼               ▼
+                          [DESIGNED]        [VERIFIED]      [VERIFIED]      [DESIGNED]
 ```
+
+| Stage | Status | Evidence |
+|-------|--------|----------|
+| CI/CD trigger (GitHub Actions) | 📐 Designed | `.github/workflows/ui-test.yml` written, not yet triggered |
+| UI Test Agent execution | ✅ Verified | 32 tests, 96.9% pass rate, real browser interaction |
+| Test Report generation | ✅ Verified | JSON + Markdown reports produced |
+| Bug-Fix Agent | 📐 Designed | `docs/BUG_FIX_AGENT.md`, not yet deployed |
+| Auto PR creation | 📐 Designed | A2A handoff designed, not yet tested end-to-end |
+
+**Next milestone:** Full end-to-end pipeline test (custom frontend app + OIDC + two Harness agents + GitHub Actions).
 
 Built with:
 - **AgentCore Browser** — remote cloud Playwright (click, type, screenshot)

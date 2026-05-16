@@ -207,3 +207,16 @@ All 7 Harness pages + all Browser sub-pages read and integrated:
 ## Harness Features Utilization: 34/34 (100%)
 
 All AgentCore Harness features are designed into the project. See docs/ARCHITECTURE.md "AgentCore Gateway & Policy Integration" section for the last 2 that were added.
+
+---
+
+## Next Session TODO: End-to-End Pipeline Test
+
+1. Create a simple frontend app with an intentional CSS bug (similar to floating menu)
+2. Deploy to GitHub Pages or S3
+3. Set up GitHub OIDC → AWS IAM role for GitHub Actions
+4. Configure GitHub Secrets (HARNESS_ARN, AWS_ROLE_ARN, STAGING_URL)
+5. Deploy Bug-Fix Agent as second Harness
+6. Wire UI Test Agent → Bug-Fix Agent via A2A or inline function
+7. Push frontend code to PR → trigger full pipeline
+8. Verify: agent finds bug → triggers fix agent → fix agent creates PR → re-test passes
