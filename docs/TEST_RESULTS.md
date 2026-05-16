@@ -1,17 +1,19 @@
 # Live Test Results
 
-> **Version:** 0.2.0 | **Total Tests:** 32 | **Pass Rate:** 96.9% | **Date:** 2026-05-16
+> **Version:** 0.2.0 | **Total Tests:** 35 | **Pass Rate:** 94.3% | **Bugs Detected:** 3 | **Date:** 2026-05-16
 
 ## Executive Summary
 
 | Metric | Value |
 |--------|-------|
-| Total tests | 32 |
-| Passed | 31 |
-| Failed (correct detection) | 1 |
-| Pass rate | 96.9% |
+| Total tests | 35 |
+| Passed | 33 |
+| Failed (correct bug detection) | 2 (in our demo app) + 1 (in test target) |
+| Pass rate | 94.3% |
 | Pages covered | 20+ |
 | Test levels achieved | Level 1–3 |
+| End-to-end pipeline | ✅ All 6 stages verified |
+| Bug-Fix Agent | ✅ Generates correct patches |
 
 ### Interaction Types Covered
 
