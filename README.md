@@ -39,20 +39,35 @@ Built with:
 
 ## Deployment Modes
 
-| Mode | Description | Console Location |
-|------|-------------|-----------------|
-| **Runtime** (code-based) | Write `main.py` with Strands SDK | AgentCore → Runtimes |
-| **Harness** (declarative) | Zero code, JSON config only | AgentCore → Harness (Preview) |
+| | Runtime (Code-based) | Harness (Declarative) |
+|---|---|---|
+| **You write** | Python code (agent loop, tool wiring, memory integration) | A JSON config (model, tools, prompt) |
+| **Who manages orchestration** | You (Strands/LangChain/custom) | AWS (Strands under the hood) |
+| **Model switching** | Change code + redeploy | Change config, or override per-invoke — no redeploy |
+| **Multi-provider** | You integrate yourself | Built-in: Bedrock + OpenAI + Gemini, switch mid-session |
+| **Shell access** | Your own container | Each session gets isolated microVM + filesystem + shell |
+| **Tool connection** | Write code to wire tools | Declarative: list MCP URLs / Gateway ARNs / Browser / Code Interpreter |
+| **Memory** | Manually integrate via SDK | Automatic: attach Memory ARN, auto-save/retrieve per invoke |
+| **Per-invocation override** | Not supported (deploy = fixed) | Override model, tools, prompt, limits on each invoke call |
+| **Skills** | Not supported | Attach markdown bundles for domain knowledge |
+| **Observability** | Wire OpenTelemetry yourself | Automatic tracing on every action |
+| **Deployment** | Package code → upload → create Runtime | One API call (`create_harness`) |
+| **Console location** | AgentCore → Runtimes | AgentCore → Harness (Preview) |
+
+**When the difference matters most:**
+- **Rapid experimentation** — Harness lets you swap models/prompts per invoke without redeploying
+- **Multi-model comparison** — Harness switches providers mid-session (Bedrock → OpenAI); Runtime cannot
+- **Operations** — Harness = zero code maintenance; Runtime = maintain main.py + deps + container
 
 ```bash
-# Mode 1: Runtime (full control)
+# Mode 1: Runtime (full control, write your own agent)
 agentcore deploy
 
-# Mode 2: Harness (zero code)
+# Mode 2: Harness (zero code, declarative config)
 python app/ui-test-agent/deploy_harness.py --role-arn <EXECUTION_ROLE_ARN>
 ```
 
-See [Design Document — Deployment Modes](docs/DESIGN_UI_TEST_AGENT.md#deployment-modes) for detailed comparison.
+See [Design Document — Deployment Modes](docs/DESIGN_UI_TEST_AGENT.md#deployment-modes) for full details.
 
 ## Quick Start
 
