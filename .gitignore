@@ -1,0 +1,26 @@
+# AgentCore
+agentcore/.env.local
+agentcore/.cli/
+agentcore/.cache/
+agentcore/cdk/cdk.out/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Reports (generated at runtime)
+/mnt/reports/
+agentcore/.cli/

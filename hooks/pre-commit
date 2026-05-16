@@ -1,0 +1,115 @@
+#!/bin/bash
+# Pre-commit hook: Block commits containing PII or sensitive data
+# Install: cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+echo "🔒 Running PII/Secrets scan..."
+
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(md|py|json|yml|yaml|sh|ts|tsx|js|env)$' || true)
+
+if [ -z "$STAGED_FILES" ]; then
+  echo -e "${GREEN}✅ No scannable files staged.${NC}"
+  exit 0
+fi
+
+VIOLATIONS=0
+
+# 1. AWS Account IDs (12-digit numbers that look like account IDs)
+echo "  Checking AWS Account IDs..."
+for file in $STAGED_FILES; do
+  matches=$(grep -nE '\b[0-9]{12}\b' "$file" 2>/dev/null | grep -v "123456789012" | grep -v "111122223333" | grep -v "000000000000" | grep -v "ACCOUNT_ID" | grep -v "timestamp" | grep -v "version" || true)
+  if [ -n "$matches" ]; then
+    echo -e "${RED}  ❌ Possible AWS Account ID in $file:${NC}"
+    echo "$matches" | head -3
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+# 2. AWS ARNs with real account IDs
+echo "  Checking AWS ARNs..."
+for file in $STAGED_FILES; do
+  matches=$(grep -nE 'arn:aws[a-z-]*:[a-z-]+:[a-z0-9-]*:[0-9]{12}:' "$file" 2>/dev/null | grep -v "123456789012" | grep -v "111122223333" | grep -v "ACCOUNT_ID" || true)
+  if [ -n "$matches" ]; then
+    echo -e "${RED}  ❌ AWS ARN with real account ID in $file:${NC}"
+    echo "$matches" | head -3
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+# 3. Personal file paths
+echo "  Checking personal paths..."
+for file in $STAGED_FILES; do
+  matches=$(grep -nE '/Users/[a-zA-Z]+/|/home/[a-zA-Z]+/|C:\\Users\\' "$file" 2>/dev/null || true)
+  if [ -n "$matches" ]; then
+    echo -e "${RED}  ❌ Personal file path in $file:${NC}"
+    echo "$matches" | head -3
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+# 4. Email addresses (except placeholder examples)
+echo "  Checking email addresses..."
+for file in $STAGED_FILES; do
+  matches=$(grep -nE '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' "$file" 2>/dev/null | grep -v "example\.com" | grep -v "company\.com" | grep -v "test\.com" | grep -v "placeholder" | grep -v "noreply" || true)
+  if [ -n "$matches" ]; then
+    echo -e "${RED}  ❌ Email address in $file:${NC}"
+    echo "$matches" | head -3
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+# 5. AWS Access Keys
+echo "  Checking AWS keys..."
+for file in $STAGED_FILES; do
+  matches=$(grep -nE '(AKIA|ASIA)[A-Z0-9]{16}' "$file" 2>/dev/null || true)
+  if [ -n "$matches" ]; then
+    echo -e "${RED}  ❌ AWS Access Key in $file:${NC}"
+    echo "$matches" | head -3
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+# 6. Private keys / tokens
+echo "  Checking secrets/tokens..."
+for file in $STAGED_FILES; do
+  matches=$(grep -nE '(sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|-----BEGIN (RSA |EC )?PRIVATE KEY)' "$file" 2>/dev/null || true)
+  if [ -n "$matches" ]; then
+    echo -e "${RED}  ❌ Secret/token in $file:${NC}"
+    echo "$matches" | head -3
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+# 7. IP addresses (non-example)
+echo "  Checking IP addresses..."
+for file in $STAGED_FILES; do
+  matches=$(grep -nE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' "$file" 2>/dev/null | grep -v "127\.0\.0\." | grep -v "0\.0\.0\.0" | grep -v "192\.168\." | grep -v "10\.0\." | grep -v "localhost" || true)
+  if [ -n "$matches" ]; then
+    echo -e "${RED}  ⚠️  IP address in $file (verify not sensitive):${NC}"
+    echo "$matches" | head -3
+    # Warning only, don't block
+  fi
+done
+
+# Result
+echo ""
+if [ $VIOLATIONS -gt 0 ]; then
+  echo -e "${RED}❌ BLOCKED: $VIOLATIONS PII/secret violation(s) found.${NC}"
+  echo ""
+  echo "Fix: Replace sensitive data with placeholders like:"
+  echo "  - AWS Account: <ACCOUNT_ID> or 123456789012"
+  echo "  - ARN: arn:aws:service:region:<ACCOUNT_ID>:resource"
+  echo "  - Path: /path/to/project"
+  echo "  - Email: user@example.com"
+  echo ""
+  echo "To bypass (NOT recommended): git commit --no-verify"
+  exit 1
+else
+  echo -e "${GREEN}✅ No PII or secrets detected. Commit allowed.${NC}"
+  exit 0
+fi

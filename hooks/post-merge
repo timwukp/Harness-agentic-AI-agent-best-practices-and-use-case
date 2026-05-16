@@ -1,0 +1,37 @@
+#!/bin/bash
+# Post-merge hook: Auto-install dependencies after pulling/merging
+
+set -e
+
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+echo "📦 Post-merge: Checking dependencies..."
+
+# Check if Python deps changed
+if git diff-tree -r --name-only ORIG_HEAD HEAD | grep -q "pyproject.toml\|uv.lock"; then
+  echo -e "${YELLOW}  Python dependencies changed. Running uv sync...${NC}"
+  if command -v uv &> /dev/null; then
+    cd app/ui-test-agent && uv sync 2>/dev/null && cd ../..
+    echo -e "${GREEN}  ✅ Python deps updated.${NC}"
+  else
+    echo "  ⚠️  uv not found. Run: cd app/ui-test-agent && uv sync"
+  fi
+fi
+
+# Check if Node deps changed
+if git diff-tree -r --name-only ORIG_HEAD HEAD | grep -q "package-lock.json\|package.json"; then
+  echo -e "${YELLOW}  Node dependencies changed. Running npm install...${NC}"
+  if [ -d "agentcore/cdk" ]; then
+    cd agentcore/cdk && npm install 2>/dev/null && cd ../..
+    echo -e "${GREEN}  ✅ Node deps updated.${NC}"
+  fi
+fi
+
+# Remind to install hooks if hooks changed
+if git diff-tree -r --name-only ORIG_HEAD HEAD | grep -q "hooks/"; then
+  echo -e "${YELLOW}  ⚠️  Hooks updated. Run: ./hooks/install.sh${NC}"
+fi
+
+echo -e "${GREEN}✅ Post-merge complete.${NC}"

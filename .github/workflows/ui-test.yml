@@ -1,0 +1,125 @@
+name: UI Test Agent
+
+on:
+  pull_request:
+    paths:
+      - 'src/frontend/**'
+      - 'src/components/**'
+      - '**/*.tsx'
+      - '**/*.jsx'
+      - '**/*.css'
+      - '**/*.scss'
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Target URL to test'
+        required: true
+        default: 'https://staging.example.com'
+      test_suite:
+        description: 'Test suite name'
+        required: true
+        default: 'regression'
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+env:
+  AWS_REGION: us-west-2
+
+jobs:
+  ui-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install boto3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Determine target URL
+        id: target
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "url=${{ github.event.inputs.target_url }}" >> $GITHUB_OUTPUT
+            echo "suite=${{ github.event.inputs.test_suite }}" >> $GITHUB_OUTPUT
+          else
+            echo "url=${{ secrets.STAGING_URL }}" >> $GITHUB_OUTPUT
+            echo "suite=pr-regression" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run UI Test Agent
+        id: test
+        run: |
+          python app/ui-test-agent/invoke.py \
+            --harness-arn ${{ secrets.HARNESS_ARN }} \
+            --url "${{ steps.target.outputs.url }}" \
+            --test-suite "${{ steps.target.outputs.suite }}" \
+            --test-cases \
+              "Login with valid credentials redirects to dashboard" \
+              "Login with invalid password shows error message" \
+              "Navigation menu links work correctly" \
+              "Form validation shows errors for empty required fields" \
+              "Responsive layout renders correctly on mobile viewport" \
+            --repo "${{ github.repository }}" \
+            --branch "${{ github.head_ref || github.ref_name }}" \
+            --region ${{ env.AWS_REGION }} \
+            2>&1 | tee test-output.txt
+        continue-on-error: true
+
+      - name: Post results to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('test-output.txt', 'utf8');
+
+            // Extract pass rate from output
+            const passRateMatch = output.match(/Pass rate: (\d+)%/);
+            const passRate = passRateMatch ? passRateMatch[1] : 'N/A';
+
+            const status = '${{ steps.test.outcome }}' === 'success' ? '✅' : '❌';
+
+            const body = `## ${status} UI Test Agent Results
+
+            **Pass Rate:** ${passRate}%
+            **Test Suite:** ${{ steps.target.outputs.suite }}
+            **Target:** ${{ steps.target.outputs.url }}
+
+            <details>
+            <summary>Full Output</summary>
+
+            \`\`\`
+            ${output.slice(-3000)}
+            \`\`\`
+
+            </details>
+
+            ---
+            *Powered by [AgentCore Harness](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness.html) UI Test Agent v0.2.0*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fail if critical issues found
+        if: steps.test.outcome == 'failure'
+        run: |
+          echo "❌ UI tests found failures. See PR comment for details."
+          exit 1

@@ -1,0 +1,70 @@
+#!/bin/bash
+# Pre-push hook: Full PII/secrets scan on ALL tracked files before pushing
+# More thorough than pre-commit (scans entire repo, not just staged files)
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+echo "🔒 Pre-push: Full repository PII/secrets scan..."
+
+ALL_FILES=$(git ls-files | grep -E '\.(md|py|json|yml|yaml|sh|ts|tsx|js)$' || true)
+
+if [ -z "$ALL_FILES" ]; then
+  exit 0
+fi
+
+VIOLATIONS=0
+
+# AWS Account IDs (12 digits, excluding known placeholders)
+for file in $ALL_FILES; do
+  matches=$(grep -nE '\b[0-9]{12}\b' "$file" 2>/dev/null | grep -v "123456789012" | grep -v "111122223333" | grep -v "000000000000" | grep -v "ACCOUNT_ID" | grep -v "timestamp" | grep -v "version" | grep -v "package-lock" || true)
+  if [ -n "$matches" ]; then
+    echo -e "${RED}  ❌ AWS Account ID in $file${NC}"
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+# Real ARNs
+for file in $ALL_FILES; do
+  matches=$(grep -nE 'arn:aws[a-z-]*:[a-z-]+:[a-z0-9-]*:[0-9]{12}:' "$file" 2>/dev/null | grep -v "123456789012" | grep -v "111122223333" | grep -v "ACCOUNT_ID" || true)
+  if [ -n "$matches" ]; then
+    echo -e "${RED}  ❌ Real AWS ARN in $file${NC}"
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+# Personal paths
+for file in $ALL_FILES; do
+  if grep -qE '/Users/[a-zA-Z]+/|/home/[a-zA-Z]+/|C:\\Users\\' "$file" 2>/dev/null; then
+    echo -e "${RED}  ❌ Personal path in $file${NC}"
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+# AWS keys
+for file in $ALL_FILES; do
+  if grep -qE '(AKIA|ASIA)[A-Z0-9]{16}' "$file" 2>/dev/null; then
+    echo -e "${RED}  ❌ AWS Access Key in $file${NC}"
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+# Private keys / tokens
+for file in $ALL_FILES; do
+  if grep -qE '(sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|-----BEGIN (RSA |EC )?PRIVATE KEY)' "$file" 2>/dev/null; then
+    echo -e "${RED}  ❌ Secret/token in $file${NC}"
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+if [ $VIOLATIONS -gt 0 ]; then
+  echo -e "\n${RED}❌ PUSH BLOCKED: $VIOLATIONS PII/secret violation(s) in repository.${NC}"
+  echo "Fix all violations before pushing. Use 'git push --no-verify' to bypass (NOT recommended)."
+  exit 1
+else
+  echo -e "${GREEN}✅ Repository clean. Push allowed.${NC}"
+  exit 0
+fi

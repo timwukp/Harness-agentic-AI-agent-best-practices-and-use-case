@@ -1,0 +1,146 @@
+{
+  "name": "ui-test-agent",
+  "model": {
+    "bedrockModelConfig": {
+      "modelId": "us.anthropic.claude-sonnet-4-5-20250514-v1:0"
+    }
+  },
+  "systemPrompt": [
+    {
+      "text": "You are an expert QA tester for web applications. Your job is to:\n\n1. Read and understand test specifications provided to you\n2. Navigate web applications using the browser tool\n3. Interact with UI elements exactly as a human tester would (click, type, scroll, hover)\n4. Observe and record the results of each interaction\n5. Compare actual results against expected results\n6. Produce structured test reports\n\nRules:\n- Always take a screenshot before and after each significant action\n- Record console errors and network failures\n- Classify each test case as PASS, FAIL, BLOCKED, or SKIPPED\n- Include evidence (screenshots, error messages) for every FAIL\n- Be thorough but efficient — skip redundant checks\n- If a test is blocked by a previous failure, mark it BLOCKED and continue\n- Output the final report as JSON to /mnt/reports/test-report-latest.json\n- Also output a human-readable Markdown summary to /mnt/reports/summary.md"
+    }
+  ],
+  "tools": [
+    {
+      "type": "agentcore_browser",
+      "name": "browser"
+    },
+    {
+      "type": "agentcore_code_interpreter",
+      "name": "code_interpreter"
+    },
+    {
+      "type": "inline_function",
+      "name": "notify_test_complete",
+      "config": {
+        "inlineFunction": {
+          "description": "Signal the orchestrator that testing is complete. Call this after writing the test report.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "report_path": {
+                "type": "string",
+                "description": "Path to the JSON test report file"
+              },
+              "pass_rate": {
+                "type": "number",
+                "description": "Overall pass rate (0.0 to 1.0)"
+              },
+              "total_failures": {
+                "type": "integer",
+                "description": "Number of failed test cases"
+              }
+            },
+            "required": ["report_path", "pass_rate", "total_failures"]
+          }
+        }
+      }
+    },
+    {
+      "type": "inline_function",
+      "name": "request_human_review",
+      "config": {
+        "inlineFunction": {
+          "description": "Escalate to a human reviewer when test results are ambiguous or require visual judgment that you cannot confidently determine.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "test_case_id": {
+                "type": "string",
+                "description": "The test case ID requiring review"
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why human review is needed"
+              },
+              "screenshot_path": {
+                "type": "string",
+                "description": "Path to the relevant screenshot"
+              }
+            },
+            "required": ["test_case_id", "reason"]
+          }
+        }
+      }
+    },
+    {
+      "type": "inline_function",
+      "name": "trigger_fix_agent",
+      "config": {
+        "inlineFunction": {
+          "description": "Pass test failures to the downstream bug-fix agent for automated remediation.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "failures": {
+                "type": "array",
+                "description": "Array of failure objects with test_case_id, expected, actual, severity, and evidence",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "test_case_id": {"type": "string"},
+                    "expected": {"type": "string"},
+                    "actual": {"type": "string"},
+                    "severity": {"type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]},
+                    "console_error": {"type": "string"},
+                    "screenshot_path": {"type": "string"}
+                  },
+                  "required": ["test_case_id", "expected", "actual", "severity"]
+                }
+              },
+              "repository_url": {
+                "type": "string",
+                "description": "Git repository URL of the application under test"
+              },
+              "branch": {
+                "type": "string",
+                "description": "Branch being tested"
+              }
+            },
+            "required": ["failures"]
+          }
+        }
+      }
+    }
+  ],
+  "allowedTools": [
+    "@builtin/shell",
+    "@builtin/file_operations",
+    "browser",
+    "code_interpreter",
+    "notify_test_complete",
+    "request_human_review",
+    "trigger_fix_agent"
+  ],
+  "maxIterations": 100,
+  "timeoutSeconds": 1800,
+  "maxTokens": 32768,
+  "truncationStrategy": "sliding_window",
+  "memory": {
+    "agentCoreMemoryConfiguration": {
+      "strategies": ["semantic", "episodic"]
+    }
+  },
+  "skills": [
+    {"path": "skills/ui-testing"}
+  ],
+  "environmentVariables": {
+    "TEST_ENV": "staging",
+    "REPORT_DIR": "/mnt/reports"
+  },
+  "tags": {
+    "team": "qa-automation",
+    "use-case": "ui-testing",
+    "environment": "staging"
+  }
+}

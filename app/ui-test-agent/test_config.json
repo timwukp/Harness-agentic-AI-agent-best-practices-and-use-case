@@ -1,0 +1,33 @@
+{
+  "target_url": "https://the-internet.herokuapp.com",
+  "test_suites": {
+    "smoke": {
+      "description": "Fast feedback for PR triggers (~2 min)",
+      "test_cases": [
+        "Login with valid credentials",
+        "Dropdown selection",
+        "Add/Remove elements"
+      ]
+    },
+    "regression": {
+      "description": "Full coverage for nightly/manual runs (~10 min)",
+      "test_cases": [
+        "Login with valid credentials",
+        "Login with invalid credentials",
+        "Dropdown selection",
+        "Dynamic loading wait",
+        "JavaScript alerts",
+        "Hover interactions",
+        "Checkbox toggle",
+        "Key press detection",
+        "Infinite scroll",
+        "Drag and drop",
+        "Broken image detection",
+        "Table structure verification",
+        "Iframe content access",
+        "Page redirect",
+        "Floating menu position"
+      ]
+    }
+  }
+}

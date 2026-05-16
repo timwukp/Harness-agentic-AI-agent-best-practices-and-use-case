@@ -1,0 +1,40 @@
+#!/bin/bash
+# Commit-msg hook: Enforce conventional commit message format
+# Format: type(scope): description
+# Types: feat, fix, docs, test, security, refactor, chore
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+COMMIT_MSG_FILE="$1"
+COMMIT_MSG=$(head -1 "$COMMIT_MSG_FILE")
+
+# Allow merge commits
+if echo "$COMMIT_MSG" | grep -qE '^Merge '; then
+  exit 0
+fi
+
+# Conventional commit pattern
+PATTERN='^(feat|fix|docs|test|security|refactor|chore|perf|ci|build|revert)(\(.+\))?: .{3,}'
+
+if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
+  echo -e "${RED}❌ Invalid commit message format.${NC}"
+  echo ""
+  echo "Expected: type(scope): description"
+  echo ""
+  echo "Types: feat, fix, docs, test, security, refactor, chore, perf, ci, build, revert"
+  echo ""
+  echo "Examples:"
+  echo "  feat: add browser tool integration"
+  echo "  fix(security): remove exposed account IDs"
+  echo "  docs: update test results"
+  echo "  test: run golden tests against staging"
+  echo ""
+  echo "Your message: $COMMIT_MSG"
+  exit 1
+fi
+
+echo -e "${GREEN}✅ Commit message format OK.${NC}"
