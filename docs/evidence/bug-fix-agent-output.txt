@@ -1,0 +1,53 @@
+I'll analyze the two bugs from the test report, then generate the minimal fix.---
+
+## Root Cause Analysis
+
+### Bug 1 — Error message color is GREEN instead of RED
+**Location:** CSS rule for `.error-message` (line 18)
+```css
+.error-message { color: green; ... }
+```
+The `.error-message` class was mistakenly given `color: green` — the same value used by `.success-message`. Since this element has a red-tinted background (`#ffe0e0`), the intent is clearly to display an error in **red**. The fix is a single word change: `green` → `red`.
+
+---
+
+### Bug 2 — Error text says "Internal server error" instead of "Invalid username or password"
+**Location:** JavaScript `else` branch handling failed login (line 67)
+```js
+errorMsg.textContent = 'Internal server error. Please try again later.';
+```
+This is a client-side credential check (comparing against hardcoded `admin`/`password123`). A failed match is a credentials error, not a server error. The message must reflect the actual failure: invalid credentials.
+
+---
+
+## Unified Diff Patch
+
+```diff
+--- a/login.html
++++ b/login.html
+@@ -15,7 +15,7 @@
+         .btn-submit { width: 100%; padding: 12px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; position: relative; }
+         .btn-submit:hover { background: #45a049; }
+         /* BUG 2: Error message uses wrong color (green instead of red) */
+-        .error-message { color: green; display: none; margin-top: 10px; padding: 10px; background: #ffe0e0; border-radius: 4px; }
++        .error-message { color: red; display: none; margin-top: 10px; padding: 10px; background: #ffe0e0; border-radius: 4px; }
+         .success-message { color: green; display: none; margin-top: 10px; padding: 10px; background: #e0ffe0; border-radius: 4px; }
+         /* BUG 3: Overlay div partially covers the submit button */
+         .overlay-bug { position: absolute; width: 200px; height: 20px; background: transparent; z-index: 10; margin-top: -25px; }
+@@ -66,7 +66,7 @@
+                 successMsg.style.display = 'block';
+             } else {
+                 // BUG 5: Wrong error message - says "server error" instead of "invalid credentials"
+-                errorMsg.textContent = 'Internal server error. Please try again later.';
++                errorMsg.textContent = 'Invalid username or password.';
+                 errorMsg.style.display = 'block';
+             }
+         });
+```
+
+### Summary of changes (2 lines touched, nothing else):
+
+| # | File location | Change |
+|---|---|---|
+| 1 | CSS `.error-message` rule | `color: green` → `color: red` |
+| 2 | JS `else` branch error text | `'Internal server error. Please try again later.'` → `'Invalid username or password.'` |
