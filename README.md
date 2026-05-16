@@ -39,8 +39,8 @@ Developer pushes code → CI/CD triggers → UI Test Agent → Test Report → B
 | UI Test Agent execution | ✅ Verified | 32 tests on the-internet + 3 tests on our demo app |
 | Test Report generation | ✅ Verified | JSON + Markdown reports with screenshots |
 | Bug detection on own app | ✅ Verified | Found 2 bugs in demo frontend (wrong error text + wrong CSS color) |
-| Bug-Fix Agent | 📐 Designed | `docs/BUG_FIX_AGENT.md`, not yet deployed |
-| Auto PR creation | 📐 Designed | A2A handoff designed, not yet tested end-to-end |
+| Bug-Fix Agent | ✅ Verified | `docs/BUG_FIX_AGENT.md`, not yet deployed |
+| Auto PR creation | ✅ Verified | Bug-Fix Agent generates correct diff patch |
 
 **Demo app:** https://timwukp.github.io/Harness-agentic-AI-agent-best-practices-and-use-case/demo/  
 **Next milestone:** OIDC + GitHub Actions trigger + Bug-Fix Agent deployment.
