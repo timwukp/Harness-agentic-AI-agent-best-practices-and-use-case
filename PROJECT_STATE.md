@@ -212,11 +212,51 @@ All AgentCore Harness features are designed into the project. See docs/ARCHITECT
 
 ## Next Session TODO: End-to-End Pipeline Test
 
-1. Create a simple frontend app with an intentional CSS bug (similar to floating menu)
-2. Deploy to GitHub Pages or S3
-3. Set up GitHub OIDC → AWS IAM role for GitHub Actions
-4. Configure GitHub Secrets (HARNESS_ARN, AWS_ROLE_ARN, STAGING_URL)
-5. Deploy Bug-Fix Agent as second Harness
-6. Wire UI Test Agent → Bug-Fix Agent via A2A or inline function
-7. Push frontend code to PR → trigger full pipeline
-8. Verify: agent finds bug → triggers fix agent → fix agent creates PR → re-test passes
+**Start here. All previous work is complete.**
+
+### Prerequisites (already done)
+- ✅ AWS Account: us-east-1, user timwu
+- ✅ AgentCore CLI installed (v0.14.0)
+- ✅ Runtime deployed: `uitestagent_uitestagent` (in Runtimes)
+- ✅ Harness deployed: `UITestAgentHarness` (in Harness Preview)
+- ✅ Browser tool working locally (AgentCoreBrowser)
+- ✅ 32 tests passed
+
+### Steps to Execute
+1. Create `app/demo-frontend/` — simple HTML page with intentional CSS bug (e.g., button hidden behind overlay, or broken form validation)
+2. Deploy to GitHub Pages (`gh-pages` branch) or S3 static hosting
+3. Set up GitHub OIDC → AWS IAM role:
+   - Create IAM Identity Provider for `token.actions.githubusercontent.com`
+   - Create role `GitHubActionsUITestRole` with trust policy for the repo
+   - Attach `bedrock-agentcore:Invoke*` + `bedrock:InvokeModel` permissions
+4. Add GitHub Secrets:
+   - `AWS_ROLE_ARN` = the OIDC role ARN
+   - `HARNESS_ARN` = Runtime or Harness ARN
+   - `STAGING_URL` = GitHub Pages URL
+5. Deploy Bug-Fix Agent:
+   - `python deploy_harness.py` with bug-fix system prompt
+   - Or create second Runtime with fix-focused main.py
+6. Update `invoke.py` to actually call Bug-Fix Agent when failures found
+7. Push frontend code to a PR → verify GitHub Actions triggers
+8. Verify full pipeline: agent finds bug → report → fix agent → PR → re-test
+
+### Key Commands
+```bash
+cd /Users/timwu/Downloads/aws-harness-agentcore-use-case
+export PATH="$HOME/.local/bin:$PATH"
+AWS_REGION=us-east-1
+
+# Test agent locally
+cd app/ui-test-agent && .venv/bin/python -c "
+from strands import Agent
+from strands_tools.browser import AgentCoreBrowser
+agent = Agent(tools=[AgentCoreBrowser(region='us-east-1').browser])
+agent('Test https://YOUR_STAGING_URL ...')
+"
+
+# Deploy
+agentcore deploy
+
+# Invoke deployed
+agentcore invoke --json --session-id "\$(uuidgen)" --prompt "..."
+```
