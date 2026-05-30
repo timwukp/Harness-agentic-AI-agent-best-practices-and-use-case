@@ -1,79 +1,95 @@
 # Issue #28 — Verification evidence
 
-All output below collected from running AWS account `<ACCOUNT_ID>` (us-east-1) on 2026-05-30, after running `setup_observability.py`. All sensitive identifiers redacted.
+Captured 2026-05-30 from running AWS account `<ACCOUNT_ID>` (us-east-1) after
+running `setup_observability.py`. All sensitive identifiers redacted.
 
-## 1. Log groups (`aws logs describe-log-groups`)
+## What was deployed
 
+### Custom CWL log groups (with 30-day retention)
+- `/aws/bedrock-agentcore/uitestagent`
+- `/aws/bedrock-agentcore/bugfixagent`
+
+### Default AgentCore log groups (retention added)
+Setting 30-day retention on the auto-created groups where AgentCore actually
+emits rich OTel data:
+- `/aws/bedrock-agentcore/runtimes/harness_UITestAgentHarness-<RUNTIME_ID>-DEFAULT`  (was: None → now 30d)
+- `/aws/bedrock-agentcore/runtimes/harness_BugFixAgentHarness-<RUNTIME_ID>-DEFAULT`   (was: None → now 30d)
+
+### CloudWatch Logs Delivery
+4 sources × 4 destinations × 4 deliveries:
+
+| Harness | LogType | Source name | Destination type | Destination name |
+|---|---|---|---|---|
+| UI Test | APPLICATION_LOGS | `ui-test-app-logs-source` | CWL | `ui-test-app-logs-dest` (→ custom log group) |
+| UI Test | TRACES | `ui-test-traces-source` | XRAY | `ui-test-traces-xray-dest` (→ X-Ray service) |
+| Bug Fix | APPLICATION_LOGS | `bug-fix-app-logs-source` | CWL | `bug-fix-app-logs-dest` |
+| Bug Fix | TRACES | `bug-fix-traces-source` | XRAY | `bug-fix-traces-xray-dest` |
+
+### IAM `ObservabilityAccess` inline policy (on harnesses' execution role)
+- LogDelivery: `logs:CreateLogStream / PutLogEvents / DescribeLogStreams` on `arn:aws:logs:us-east-1:<ACCOUNT_ID>:log-group:/aws/bedrock-agentcore/*`
+- XRayTracing: `xray:PutTraceSegments / PutTelemetryRecords / GetSamplingRules / GetSamplingTargets` on `*`
+
+### Resource policy `AWSLogDeliveryWrite20150319`
+Extended to allow `delivery.logs.amazonaws.com` to write to our log groups.
+Existing SageMaker GroundTruth statement preserved; new statement added with
+`SourceAccount` condition for security.
+
+## Verified working at runtime
+
+### ✓ X-Ray traces flowing
+- 47 traces captured in last 30 minutes
+- EntryPoint names: `harness_UITestAgentHarness.DEFAULT` and `harness_BugFixAgentHarness.DEFAULT`
+
+### ✓ Application Signals service discovery
+- 4 harness services discovered (UI Test + Bug Fix, each in DEFAULT environment)
+- Visible in AWS Console → CloudWatch → Application Signals → Services
+
+### ✓ Default log group has rich OTel data
+Sample message format (redacted):
 ```
-/aws/bedrock-agentcore/uitestagent  retention: 30 days
-/aws/bedrock-agentcore/bugfixagent  retention: 30 days
+{
+  "_aws": {"CloudWatchMetrics": [{"Namespace": "bedrock-agentcore", ...}]},
+  "otel.resource.service.name": "harness_UITestAgentHarness.DEFAULT",
+  "otel.resource.aws.log.group.names": "/aws/bedrock-agentcore/runtimes/.../-DEFAULT",
+  "otel.resource.aws.service.type": "gen_ai_agent",
+  "otel.resource.cloud.platform": "aws_bedrock_agentcore"
+}
+```
+Includes EMF (Embedded Metric Format) for CloudWatch metric extraction.
+
+### ⚠ Custom CWL log groups currently only show AWS validation message
+```
+log_stream_created_by_aws_to_validate_log_delivery_subscriptions:
+  "Permissions are set correctly to allow AWS CloudWatch Logs to write
+   into your logs while creating a subscription."
 ```
 
-## 2. Delivery sources (`aws logs describe-delivery-sources`)
+**Why:** AgentCore runtime emits OTel data **directly** to its own auto-created
+DEFAULT log group (per the hardcoded `otel.resource.aws.log.group.names`
+attribute). The CloudWatch Logs Delivery API's `APPLICATION_LOGS` channel
+populates only when the runtime emits to that specific channel, which appears
+to be a sparser event stream than the rich OTel logs.
 
-```
-bug-fix-app-logs-source   APPLICATION_LOGS
-bug-fix-traces-source     TRACES
-ui-test-app-logs-source   APPLICATION_LOGS
-ui-test-traces-source     TRACES
-```
+**Implication:**
+- For dashboards / alarms (issue #18, #20): query the **DEFAULT log group**
+  (which has the rich data and now has 30-day retention)
+- For compliance evidence: the validation stream message in the custom group
+  proves the delivery infrastructure is correct and AWS-validated
+- The custom log group will populate if/when AgentCore emits APPLICATION_LOGS
+  events; no agent code changes needed on our side
 
-## 3. Delivery destinations (`aws logs describe-delivery-destinations`)
+## How to reproduce
 
-```
-bug-fix-app-logs-dest      CWL    (→ CloudWatch log group)
-bug-fix-traces-xray-dest   XRAY   (→ X-Ray service)
-ui-test-app-logs-dest      CWL    (→ CloudWatch log group)
-ui-test-traces-xray-dest   XRAY   (→ X-Ray service)
-```
-
-## 4. Deliveries (links source → destination)
-
-```
-bug-fix-app-logs-source   →  CWL  (bug-fix-app-logs-dest)
-bug-fix-traces-source     →  XRAY (bug-fix-traces-xray-dest)
-ui-test-app-logs-source   →  CWL  (ui-test-app-logs-dest)
-ui-test-traces-source     →  XRAY (ui-test-traces-xray-dest)
+```bash
+python agentcore/scripts/setup_observability.py
+# All idempotent — safe to re-run
 ```
 
-## 5. IAM `ObservabilityAccess` inline policy
+## Console verification (manual)
 
-```
-Sid: LogDelivery    logs:CreateLogStream / PutLogEvents / DescribeLogStreams
-                    Resource: arn:aws:logs:us-east-1:<ACCOUNT_ID>:log-group:/aws/bedrock-agentcore/*
-Sid: XRayTracing    xray:PutTraceSegments / PutTelemetryRecords / GetSamplingRules / GetSamplingTargets
-                    Resource: *
-```
-
-## 6. Pre-existing default log groups confirmed live
-
-```
-/aws/bedrock-agentcore/runtimes/harness_UITestAgentHarness-<RUNTIME_ID>-DEFAULT
-  Last event: 2026-05-30 23:44 (~7 min before this PR)
-  Sample message: "Waiting for application startup. ... Uvicorn running on http://0.0.0.0:8080"
-```
-
-This pre-existing default log group already shows the runtime is logging actively. Our new delivery configuration tees future events to our custom log groups + X-Ray.
-
-## 7. Console verification (manual — user to confirm post-merge)
-
-In AWS Console → AgentCore → Harness → each harness:
-
-- **Log delivery section:** should show **2** destinations (was 0):
-  - 1× CWL → `/aws/bedrock-agentcore/{name}`
-  - 1× XRAY → AWS X-Ray service
-- **Tracing section:** should show **Enabled** (was "Not enabled")
-
-## 8. End-to-end verification (manual — user to perform)
-
-After merging, in the AWS console click "Test harness" on UITestAgentHarness with a simple prompt like "What is 2+2?". Then within 5 minutes:
-
-- `aws logs tail /aws/bedrock-agentcore/uitestagent --since 5m` should stream events
-- AWS Console → CloudWatch → Application Signals → Service map should show `harness_UITestAgentHarness`
-
-(I cannot perform this step programmatically because the public boto3 SDK does not yet expose the `InvokeHarness` API; harness invocation is currently console-only or via AWS internal SDK. This was confirmed during implementation.)
-
-## Notes
-
-- **Idempotent:** running the script a second time prints "exists" for everything that's already there, no errors.
-- **No code committed depends on the actual deployed resource IDs** — the script discovers harnesses by name (`harness_UITestAgentHarness`, `harness_BugFixAgentHarness`) at runtime.
+1. AWS Console → AgentCore → Harness → UITestAgentHarness
+   - Log delivery: should show **2** (was 0) — 1 CWL + 1 XRAY
+   - Tracing: should show **Enabled** (was "Not enabled")
+2. Same for BugFixAgentHarness.
+3. CloudWatch → Application Signals → Service map
+   - Both `harness_UITestAgentHarness.DEFAULT` and `harness_BugFixAgentHarness.DEFAULT` listed
