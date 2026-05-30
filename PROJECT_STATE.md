@@ -67,7 +67,7 @@ An AI-powered UI testing agent that replaces human QA testers in SDLC, built on 
 ### Key Finding
 - Browser tool works **locally** (connects to remote AgentCore Browser service)
 - Browser tool **fails in Runtime CodeZip mode** (Playwright binary permission error)
-- Fix: Use Container deployment mode or resolve strands_tools remote-only path
+- Fix: Use Container deployment mode or resolve strands_tools remote-only path. Designed in [`docs/PRODUCTION_HARDENING.md` §1](docs/PRODUCTION_HARDENING.md#1-container-deployment-mode).
 - Agent correctly detects real UI bugs (floating menu position:absolute vs fixed; intentional CSS/text bugs in demo frontend)
 
 ---
@@ -113,6 +113,7 @@ aws-harness-agentcore-use-case/
 │   ├── CASE_STUDY_zh-TW.md              # STAR case study (Chinese)
 │   ├── DESIGN_UI_TEST_AGENT.md          # Original design document
 │   ├── DEVELOPMENT_WORKFLOW.md          # Issue → fix → PR methodology
+│   ├── PRODUCTION_HARDENING.md          # Priority 4 design playbook (Container deploy, recording, profiles, alarms, eval)
 │   ├── TEST_RESULTS.md                  # All test run results
 │   ├── TESTING_THE_AGENT.md             # How to test the agent itself
 │   ├── TRIGGERS.md                      # 4 trigger mechanisms
@@ -164,16 +165,19 @@ ad26acc feat: deploy to AWS us-east-1 — first successful live test
 
 ## Pending TODO
 
-### Priority 1: Document Consistency Update
+### Priority 1: Document Consistency Update — ✅ Resolved by v0.2.1 doc audit
+
+All Priority 1 items have been resolved by the 2026-05-30 documentation audit:
+
 - [x] Update CHANGELOG.md with v0.2.0 entries ✅
-- [ ] Update ARCHITECTURE.md to include Code Interpreter, A2A, Eval SDK sections — *tracked in upcoming issue (P2 doc-audit follow-up)*
-- [ ] Update DESIGN_UI_TEST_AGENT.md to reflect current main.py tools — *tracked in upcoming issue*
-- [ ] Update BEST_PRACTICES.md with Browser features (profiles, recording, Web Bot Auth) — *tracked in upcoming issue*
-- [ ] Update BEST_PRACTICES_zh-TW.md to match English version — *tracked in upcoming issue*
-- [ ] Update app/ui-test-agent/README.md with new tools (execute_code, a2a, eval) — *tracked in upcoming issue*
+- [x] Update ARCHITECTURE.md to include Code Interpreter, A2A, Eval SDK sections ✅ (PR #9, issue #8)
+- [x] Update DESIGN_UI_TEST_AGENT.md to reflect current main.py tools ✅ (PR #13, issue #12)
+- [x] Update BEST_PRACTICES.md with Browser features (profiles, recording, Web Bot Auth) ✅ (PR #11, issue #10)
+- [x] Update BEST_PRACTICES_zh-TW.md to match English version ✅ (PR #11, issue #10)
+- [x] Update app/ui-test-agent/README.md with new tools (execute_code, a2a, eval) ✅ (PR #13, issue #12)
 
 ### Priority 2: Code Fixes
-- [ ] Fix Browser tool in deployed Runtime (Container mode or remote-only path) — *will be designed in PRODUCTION_HARDENING.md*
+- [ ] Fix Browser tool in deployed Runtime (Container mode or remote-only path) — *designed in [`docs/PRODUCTION_HARDENING.md` §1](docs/PRODUCTION_HARDENING.md#1-container-deployment-mode); deployment is a separate work stream*
 - [x] Run full test suite with Browser tool — 35 tests completed across 9 runs ✅ (commits `56905611`, `978bae4a`)
 - [ ] Verify Code Interpreter works in deployed environment
 - [x] Test A2A handoff — Bug-Fix Agent deployed and full pipeline verified ✅ (commit `75d8e065`, evidence in commit `05951a944`)
@@ -186,15 +190,18 @@ ad26acc feat: deploy to AWS us-east-1 — first successful live test
 - [x] Test bug detection on own app — 2/5 intentional bugs found in demo frontend ✅ (commit `56905611`)
 - [ ] Add remaining 10+ pages for full 40+ coverage
 
-### Priority 4: Production Hardening
-*Will be designed in upcoming `docs/PRODUCTION_HARDENING.md` (P3 doc-audit follow-up). Actual deployment of each item is a separate work stream.*
+### Priority 4: Production Hardening — design landed, deployment pending
 
-- [ ] Switch to Container deployment mode (fixes Playwright issue)
-- [ ] Add Browser session recording (S3 bucket)
-- [ ] Add Browser profiles (persist login state)
-- [ ] Configure Web Bot Auth (reduce CAPTCHA)
-- [ ] Set up CloudWatch alarms for anomalous behavior
-- [ ] Add online eval for continuous quality monitoring
+All six items now have a concrete project-specific design in [`docs/PRODUCTION_HARDENING.md`](docs/PRODUCTION_HARDENING.md). Each item below links to its section. Actual deployment of each item is a separate work stream (one issue + PR per item).
+
+- [ ] Switch to Container deployment mode (fixes Playwright issue) — [§1](docs/PRODUCTION_HARDENING.md#1-container-deployment-mode)
+- [ ] Add Browser session recording (S3 bucket) — [§3](docs/PRODUCTION_HARDENING.md#3-browser-session-recording-s3)
+- [ ] Add Browser profiles (persist login state) — [§4](docs/PRODUCTION_HARDENING.md#4-browser-profiles)
+- [ ] Configure Web Bot Auth (reduce CAPTCHA) — [§6](docs/PRODUCTION_HARDENING.md#6-web-bot-auth) (deferred — no qualifying target site yet)
+- [ ] Set up CloudWatch alarms for anomalous behavior — [§2](docs/PRODUCTION_HARDENING.md#2-cloudwatch-alarms)
+- [ ] Add online eval for continuous quality monitoring — [§5](docs/PRODUCTION_HARDENING.md#5-online-eval-continuous-quality-monitoring)
+
+**Sequencing recommendation** (from PRODUCTION_HARDENING.md): Container → Alarms → Recording / Profiles in parallel → Online Eval → Web Bot Auth (deferred).
 
 ---
 
@@ -289,10 +296,10 @@ A documentation audit on 2026-05-30 found drift between repo state and various d
 |-------|--------|-------|
 | #2 | ✅ Merged in PR #3 | Add `docs/DEVELOPMENT_WORKFLOW.md` (issue → fix → PR methodology) |
 | #4 | ✅ Merged in PR #5 | README badges out of sync with verified test count |
-| #6 | 🔄 In progress | This file — sync TODO checkboxes with reality |
-| (next) | Pending | ARCHITECTURE.md missing Code Interpreter / A2A / Eval SDK sections |
-| (next) | Pending | BEST_PRACTICES.md (EN + zh-TW) missing Browser features |
-| (next) | Pending | DESIGN_UI_TEST_AGENT.md and app README out of sync with current code |
-| (next) | Pending | New `docs/PRODUCTION_HARDENING.md` (Priority 4 design) |
+| #6 | ✅ Merged in PR #7 | Sync this file's TODO checkboxes with reality |
+| #8 | ✅ Merged in PR #9 | ARCHITECTURE.md missing Code Interpreter / A2A / Eval SDK sections |
+| #10 | ✅ Merged in PR #11 | BEST_PRACTICES.md (EN + zh-TW) missing Browser features |
+| #12 | ✅ Merged in PR #13 | DESIGN_UI_TEST_AGENT.md and app README out of sync with current code |
+| #14 | 🔄 In progress | New `docs/PRODUCTION_HARDENING.md` (Priority 4 design) |
 
-After all merge: bump VERSION to 0.2.1 and add CHANGELOG entry.
+After all merge: bump VERSION to 0.2.1 and add CHANGELOG entry (v0.2.1 release PR).
