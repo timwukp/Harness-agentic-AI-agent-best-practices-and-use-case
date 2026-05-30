@@ -1,8 +1,8 @@
 # UI Test Agent — Complete Use Case Architecture
 
-> **Version:** 0.2.0  
-> **Last Updated:** 2026-05-16  
-> **Status:** Design
+> **Version:** 0.2.0
+> **Last Updated:** 2026-05-30
+> **Status:** Design + Implementation reference
 
 ---
 
@@ -13,14 +13,18 @@
 3. [End-to-End Workflow](#end-to-end-workflow)
 4. [System Architecture](#system-architecture)
 5. [Trigger Mechanisms](#trigger-mechanisms)
-6. [Agent Guardrails & Safety](#agent-guardrails--safety)
-7. [Self-Learning & Memory Architecture](#self-learning--memory-architecture)
-8. [Scaling Strategy](#scaling-strategy)
-9. [Agent Testing Strategy](#agent-testing-strategy)
-10. [Admin Portal Design](#admin-portal-design)
-11. [Downstream Bug-Fix Agent](#downstream-bug-fix-agent)
-12. [Security Design](#security-design)
-13. [Cost Model](#cost-model)
+6. [Code Interpreter Integration](#code-interpreter-integration)
+7. [Agent Guardrails & Safety](#agent-guardrails--safety)
+8. [Self-Learning & Memory Architecture](#self-learning--memory-architecture)
+9. [Scaling Strategy](#scaling-strategy)
+10. [Agent Testing Strategy](#agent-testing-strategy)
+11. [Admin Portal Design](#admin-portal-design)
+12. [Downstream Bug-Fix Agent](#downstream-bug-fix-agent)
+13. [A2A Protocol — Agent-to-Agent Communication](#a2a-protocol--agent-to-agent-communication)
+14. [Security Design](#security-design)
+15. [Cost Model](#cost-model)
+16. [AgentCore Gateway & Policy Integration](#agentcore-gateway--policy-integration)
+17. [Entire Project Cost Estimation](#entire-project-cost-estimation)
 
 ---
 
@@ -190,8 +194,8 @@ jobs:
             // Read report and post as PR comment
 ```
 
-**When:** Developer pushes front-end code to a PR  
-**What:** Deploys preview → runs agent → posts results as PR comment  
+**When:** Developer pushes front-end code to a PR
+**What:** Deploys preview → runs agent → posts results as PR comment
 **Block merge:** If any CRITICAL or HIGH severity failures
 
 ### 2. Admin Portal Trigger (Manual)
@@ -205,7 +209,7 @@ POST /api/test-runs
 }
 ```
 
-**When:** QA lead wants to run a specific test suite on demand  
+**When:** QA lead wants to run a specific test suite on demand
 **What:** Admin portal calls orchestrator API → invokes harness
 
 ### 3. Scheduled Trigger (Cron)
@@ -222,7 +226,7 @@ POST /api/test-runs
 }
 ```
 
-**When:** Every night at 2 AM UTC  
+**When:** Every night at 2 AM UTC
 **What:** Full regression suite against staging
 
 ### 4. Webhook Trigger (External)
@@ -238,8 +242,92 @@ Headers: X-Webhook-Secret: <secret>
 }
 ```
 
-**When:** External deployment system notifies that a new version is live  
+**When:** External deployment system notifies that a new version is live
 **What:** Triggers smoke test suite
+
+---
+
+## Code Interpreter Integration
+
+### Why the agent needs code execution
+
+Browser interaction alone is not enough for high-quality QA. Many test verifications need precise computation that an LLM cannot reliably do in its head:
+
+- **JSON / response payload comparison** — diff two API responses to find which field changed
+- **Numerical assertions** — does cart total match the sum of line items + tax + shipping (with rounding)?
+- **Date and time math** — was the "expires in 24h" badge calculated correctly?
+- **Pixel-level layout checks** — extract bounding-box coordinates from screenshots and assert geometry
+- **Test report generation** — produce structured JSON / Markdown reports deterministically
+- **Statistical roll-ups** — aggregate pass / fail rates across runs
+
+Doing these via prompt-only reasoning is unreliable: the model can hallucinate calculations or report inconsistent numbers between runs. Running them through Code Interpreter gives a **deterministic, auditable execution path** in a sandbox.
+
+### Wiring in the agent
+
+`app/ui-test-agent/main.py` registers Code Interpreter as a Strands tool:
+
+```python
+from bedrock_agentcore.tools.code_interpreter_client import CodeInterpreterClient
+from strands import tool
+
+REGION = os.environ.get("AWS_REGION", "us-east-1")
+code_interpreter = CodeInterpreterClient(region=REGION)
+
+@tool
+def execute_code(code: str, language: str = "python") -> str:
+    """Execute code in a secure sandbox.
+
+    Use for calculations, data analysis, report generation, and comparisons.
+    """
+    try:
+        result = code_interpreter.execute(code=code, language=language)
+        return result.get("output", "") or result.get("error", "No output")
+    except Exception as e:
+        return f"Code execution error: {str(e)}"
+
+# Registered alongside Browser, file tools, MCP clients
+tools = [browser_tool.browser, execute_code, file_read, file_write, list_files]
+```
+
+The agent's system prompt tells it explicitly when to reach for this tool:
+
+> Use code interpreter for data analysis, JSON generation, and calculations.
+
+### Sandbox properties
+
+| Property | Value |
+|---|---|
+| Isolation | Firecracker microVM (hardware-level), separate from the agent's own VM |
+| Languages supported | Python (default), JavaScript, TypeScript |
+| Filesystem | Ephemeral; resets per session unless attached to Session Storage / EFS / S3 Files |
+| Network egress | Disabled by default; can be enabled for fetching external data |
+| Persistent state | None across `execute()` calls unless the agent saves to mounted storage |
+| Pre-installed libraries | Standard Python stdlib + common data libs (pandas, numpy, json) |
+| Failure mode | Errors returned as a string; no exception leaks to the agent |
+
+### Use cases in this project
+
+| Use case | Example code the agent might run |
+|---|---|
+| Compare expected vs actual JSON | `json.loads(actual) == json.loads(expected)` |
+| Roll up pass / fail counts | `pass_count = sum(1 for t in tests if t['status']=='PASS')` |
+| Generate Markdown report | Format test results into a structured `report.md` |
+| Calculate cart totals | `sum(line_items) * (1 + tax_rate) + shipping == cart_total` |
+| Decode encoded form values | `urllib.parse.parse_qs(form_data)` |
+
+### When NOT to use Code Interpreter
+
+- **Trivial arithmetic** the model can do reliably in prose (e.g. "is 5 > 3?")
+- **String matching** that a regex in the system prompt can express
+- **Anything the Browser tool can do directly** — don't write JavaScript via Code Interpreter to click an element when `browser.click()` exists
+
+The agent's per-iteration cost is much lower without spinning up a sandbox call, so reserve it for genuinely deterministic-compute tasks.
+
+### Cost characteristics
+
+- ~$0.001 per session-second (see [Cost Model](#cost-model))
+- Typical UI Test Agent usage: 30–60 seconds total per test run, contributing ~$0.03 of the ~$0.32 per-run cost
+- Cold start of a fresh microVM is included; reuse of an active session is faster
 
 ---
 
@@ -608,7 +696,7 @@ groups = {
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 1. Golden Test Cases
+### 1. Golden Test Cases — design
 
 Pre-built test app with known bugs → agent must find them:
 
@@ -629,23 +717,83 @@ golden_tests = [
 ]
 ```
 
-### 2. Evaluation Framework (LLM-as-Judge)
+### 2. Evaluation Runner Implementation
+
+The conceptual golden-tests pattern above is implemented concretely in `app/ui-test-agent/eval_runner.py`. It runs a fixed suite of 6 prompts against the deployed agent and verifies that the response contains expected keywords.
+
+**Test definition format (from `eval_runner.py`):**
+
+```python
+GOLDEN_TESTS = [
+    {
+        "id": "GT-01",
+        "prompt": "Navigate to https://the-internet.herokuapp.com/login. "
+                  "Type 'tomsmith' in username, 'SuperSecretPassword!' in password, "
+                  "click Login. Report PASS if redirected to /secure.",
+        "expected_status": "PASS",
+        "must_contain": ["secure", "logged in"],
+    },
+    # ... GT-02 through GT-06
+]
+```
+
+The 6 golden tests cover:
+
+| ID | Scenario | Verifies |
+|---|---|---|
+| GT-01 | Valid login | Agent can drive a happy-path login flow |
+| GT-02 | Invalid login | Agent correctly reports an error message |
+| GT-03 | Dropdown selection | Agent handles `<select>` elements |
+| GT-04 | Broken images | Agent detects HTTP 4xx image responses |
+| GT-05 | Dynamic loading | Agent waits for async content to appear |
+| GT-06 | Add/remove elements | Agent handles dynamic DOM mutation |
+
+**Validation approach (current):**
+
+```python
+def run_golden_tests(harness_arn: str, region: str = "us-east-1") -> dict:
+    client = boto3.client("bedrock-agentcore", region_name=region)
+    results = {"total": len(GOLDEN_TESTS), "passed": 0, "failed": 0, "details": []}
+
+    for test in GOLDEN_TESTS:
+        response = client.invoke_agent_runtime(
+            agentRuntimeArn=harness_arn,
+            runtimeSessionId=str(uuid.uuid4()),
+            body=json.dumps({"prompt": test["prompt"]}).encode(),
+        )
+        # Stream response into a single string
+        response_text = "".join(
+            chunk.decode("utf-8", errors="ignore")
+            for event in response.get("body", [])
+            for chunk in [event.get("chunk", {}).get("bytes", b"")]
+        )
+        # Keyword-based pass/fail
+        if any(kw in response_text.lower() for kw in test["must_contain"]):
+            results["passed"] += 1
+        else:
+            results["failed"] += 1
+    return results
+```
+
+**CI integration:**
 
 ```bash
-# Using agentcore CLI built-in eval
-agentcore add evaluator --name ui-test-quality \
-  --criteria "Did the agent correctly identify all bugs?" \
-  --criteria "Are screenshots captured for every failure?" \
-  --criteria "Is the severity classification accurate?" \
-  --criteria "Is the report well-structured and complete?"
-
-agentcore run eval --harness ui-test-agent --evaluator ui-test-quality
+python app/ui-test-agent/eval_runner.py --harness-arn "$RUNTIME_ARN"
+# Exit code 0 if all pass, 1 if any fail (suitable for GitHub Actions)
 ```
+
+**Limitations of the current approach:**
+
+- **Keyword matching is brittle.** A response that says "login attempt secured by MFA" would falsely pass GT-01's `"secure"` keyword.
+- **No semantic verification.** The runner cannot tell that the agent reasoned correctly — only that the right substring appeared.
+- **No partial credit.** A test either fully passes or fully fails.
+
+**Planned upgrade:** LLM-as-judge replacement that scores each response against the test's intent (1–5 scale) plus a structured rubric (correctness, evidence quality, severity classification). Tracked separately from this issue.
 
 ### 3. Regression Testing
 
 After every agent update (prompt change, model change, skill update):
-1. Run against golden test app
+1. Run `eval_runner.py` against the deployed agent
 2. Compare results to baseline
 3. Alert if pass rate drops or false positives increase
 
@@ -757,6 +905,139 @@ UI Test Agent                    Bug-Fix Agent
 }
 ```
 
+The Bug-Fix Agent has been deployed in this project as `BugFixAgentHarness-F05tJBICHZ`. The handoff from UI Test Agent to Bug-Fix Agent uses the [A2A protocol](#a2a-protocol--agent-to-agent-communication).
+
+---
+
+## A2A Protocol — Agent-to-Agent Communication
+
+### What "A2A" means here
+
+A2A (agent-to-agent) is the pattern of one agent invoking another agent **directly**, peer-to-peer, instead of going through an intermediate orchestrator (Step Functions / Lambda / SQS).
+
+```
+ORCHESTRATED HANDOFF                          A2A HANDOFF
+────────────────────                          ───────────
+
+  UI Test Agent                                UI Test Agent
+        │                                            │
+        │ emit failure event                         │ invoke_agent_runtime(
+        ▼                                            │   target = Bug-Fix ARN,
+  ┌─────────────┐                                    │   payload = failures
+  │ Step Funcs  │                                    │ )
+  │   /Lambda   │                                    │
+  └─────┬───────┘                                    ▼
+        │ invoke                                Bug-Fix Agent
+        ▼
+  Bug-Fix Agent
+
+  + Easy retry / DLQ                          + Lower latency
+  + Visible in workflow                       + No orchestrator infra
+  + Buffers bursty traffic                    + Direct trust path
+  − Extra cost & latency                      − Caller owns retries
+                                              − No buffering
+```
+
+### Implementation in this project
+
+`app/ui-test-agent/a2a_handoff.py` is a thin wrapper around `boto3.invoke_agent_runtime`:
+
+```python
+import boto3, json, os
+
+REGION = os.environ.get("AWS_REGION", "us-east-1")
+BUG_FIX_AGENT_ARN = os.environ.get("BUG_FIX_AGENT_ARN", "")
+
+def trigger_fix_agent_a2a(
+    failures: list[dict],
+    repository_url: str = "",
+    branch: str = "",
+) -> dict:
+    """Send test failures to the Bug-Fix Agent via A2A protocol."""
+    if not BUG_FIX_AGENT_ARN:
+        return {"status": "skipped", "reason": "BUG_FIX_AGENT_ARN not configured"}
+
+    client = boto3.client("bedrock-agentcore", region_name=REGION)
+    payload = {
+        "prompt": json.dumps({
+            "action": "fix_failures",
+            "failures": failures,
+            "repository_url": repository_url,
+            "branch": branch,
+        })
+    }
+    try:
+        response = client.invoke_agent_runtime(
+            agentRuntimeArn=BUG_FIX_AGENT_ARN,
+            body=json.dumps(payload).encode(),
+        )
+        return {"status": "triggered", "response": "Fix agent invoked via A2A"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+```
+
+The orchestrator (`e2e_pipeline.py`) calls `trigger_fix_agent_a2a()` after collecting failure data, and the Bug-Fix Agent (`BugFixAgentHarness-F05tJBICHZ`) parses the JSON-encoded payload from its prompt to extract failures, repo URL, and branch.
+
+### IAM trust model
+
+For A2A to work, the **caller's** execution role must have `bedrock-agentcore:InvokeAgentRuntime` permission scoped to the **target's** ARN:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "bedrock-agentcore:InvokeAgentRuntime",
+    "Resource": "arn:aws:bedrock-agentcore:us-east-1:<ACCOUNT_ID>:runtime/BugFixAgentHarness-F05tJBICHZ"
+  }]
+}
+```
+
+Without this, the call fails with `AccessDenied`. Always scope `Resource` to specific target ARNs — never `*`.
+
+### Recommended Cedar policy (when using Gateway)
+
+If A2A is wired through AgentCore Gateway, scope it with Cedar:
+
+```cedar
+// UI Test Agent may invoke ONLY the Bug-Fix Agent, not other runtimes
+permit(
+  principal == AgentCore::Agent::"ui-test-agent",
+  action == Action::"InvokeAgentRuntime",
+  resource == AgentCore::Runtime::"BugFixAgentHarness-F05tJBICHZ"
+);
+
+// Deny invocation of any agent that has write access to production repos
+forbid(
+  principal == AgentCore::Agent::"ui-test-agent",
+  action == Action::"InvokeAgentRuntime",
+  resource
+) when {
+  resource.tags.environment == "production"
+};
+```
+
+### A2A vs orchestrator decision matrix
+
+| Scenario | Use A2A | Use Step Functions / SQS |
+|---|---|---|
+| Synchronous handoff in same session | ✅ | |
+| Need retry with backoff | | ✅ |
+| Fan-out to many agents | | ✅ |
+| Audit trail required (compliance) | | ✅ |
+| Latency-sensitive (< 1s overhead) | ✅ | |
+| Long-lived async workflow (hours/days) | | ✅ |
+| Need DLQ for failures | | ✅ |
+| Two-agent linear pipeline (this project) | ✅ | |
+
+### Production considerations
+
+- **Pass `runtimeSessionId`** when invoking — propagate the parent session ID so traces in CloudWatch/X-Ray correlate across agents.
+- **Bound the payload size.** `invoke_agent_runtime` has request-size limits; for large failure dumps, write to S3 and pass a URI in the payload instead.
+- **Idempotency.** If the caller retries, the target should detect duplicate `runtimeSessionId` + payload and not re-process. The target agent's prompt should explicitly say "if you've already started a fix for this exact failure set, return your previous result."
+- **Circuit breaker.** Add a counter (e.g. CloudWatch metric) of consecutive A2A failures. After N failures, fall back to file-based handoff (write failure JSON to S3, file an issue manually) instead of invoking the target.
+- **Audit logging.** Log every A2A call: caller, target ARN, session ID, payload hash, result. CloudTrail captures the API call automatically; supplement with structured app-level logs.
+
 ---
 
 ## Security Design
@@ -772,6 +1053,7 @@ UI Test Agent                    Bug-Fix Agent
 | Credential exposure in reports | Screenshots sanitized, credentials never in prompts |
 | Runaway cost | Hard limits (maxIterations, timeout, maxTokens) + CloudWatch alarms |
 | Unauthorized invocation | IAM dual-permission + optional OAuth inbound |
+| Unauthorized A2A invocation | Caller IAM scoped to specific target ARN; Cedar policy when via Gateway |
 
 ### Data Flow Security
 
