@@ -2,8 +2,8 @@
 
 Production-ready AI agent that replaces human QA testers, built on **Amazon Bedrock AgentCore**.
 
-[![Tests](https://img.shields.io/badge/tests-32%20passed-brightgreen)]()
-[![Pass Rate](https://img.shields.io/badge/pass%20rate-96.9%25-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-35%20passed-brightgreen)]()
+[![Pass Rate](https://img.shields.io/badge/pass%20rate-94.3%25-brightgreen)]()
 [![Version](https://img.shields.io/badge/version-0.2.0-blue)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)]()
 
