@@ -38,10 +38,10 @@ An AI-powered UI testing agent that replaces human QA testers in SDLC, built on 
 |----------|--------|
 | Runtime | `arn:aws:bedrock-agentcore:us-east-1:<ACCOUNT_ID>:runtime/<RUNTIME_ID>` |
 | Memory | `arn:aws:bedrock-agentcore:us-east-1:<ACCOUNT_ID>:memory/uitestagent_<MEMORY_ID>` |
-| IAM Role | `AgentCore-uitestagent-def-ApplicationAgentUitestage-mzobm0YQRR1k` |
+| IAM Role | `AgentCore-uitestagent-def-ApplicationAgentUitestage-<IAM_ROLE_ID>` |
 | CloudFormation Stack | `AgentCore-uitestagent-default` |
 | Browser IAM Policy | `BrowserAccess` (added to role) |
-| Bug-Fix Agent Harness | `BugFixAgentHarness-F05tJBICHZ` (deployed in commit `75d8e065`) |
+| Bug-Fix Agent Harness | `BugFixAgentHarness-<HARNESS_ID>` (deployed in commit `75d8e065`) |
 
 ---
 
@@ -207,7 +207,7 @@ All six items now have a concrete project-specific design in [`docs/PRODUCTION_H
 
 ## Key Technical Decisions
 
-1. **Runtime vs Harness:** Deployed as Runtime (Strands agent) because CLI v0.14.0 doesn't support `create harness` non-interactively. Harness config (harness.json) kept as design reference. Bug-Fix Agent later deployed as Harness (`BugFixAgentHarness-F05tJBICHZ`) demonstrating both modes.
+1. **Runtime vs Harness:** Deployed as Runtime (Strands agent) because CLI v0.14.0 doesn't support `create harness` non-interactively. Harness config (harness.json) kept as design reference. Bug-Fix Agent later deployed as Harness (`BugFixAgentHarness-<HARNESS_ID>`) demonstrating both modes.
 2. **Browser:** Uses `strands_tools.browser.AgentCoreBrowser` which connects to remote AWS Browser service (aws.browser.v1). Works locally, fails in CodeZip due to Playwright binary.
 3. **Memory:** 4 strategies configured (semantic, episodic, summarization, user_preference).
 4. **Model:** Claude Sonnet 4.5 (us.anthropic.claude-sonnet-4-5-20250514-v1:0).
@@ -256,7 +256,7 @@ The end-to-end pipeline (UI Test Agent → Bug-Fix Agent → Patch) was fully ve
 | 2. Deploy to GitHub Pages | ✅ | commit `e98679d2` (added `docs/demo/`) |
 | 3. Set up GitHub OIDC → AWS IAM role | ✅ | commit `5db15fd7` |
 | 4. Add GitHub Secrets (`AWS_ROLE_ARN`, `HARNESS_ARN`, `STAGING_URL`) | ✅ | commit `5db15fd7` |
-| 5. Deploy Bug-Fix Agent | ✅ | commit `75d8e065` (`BugFixAgentHarness-F05tJBICHZ`) |
+| 5. Deploy Bug-Fix Agent | ✅ | commit `75d8e065` (`BugFixAgentHarness-<HARNESS_ID>`) |
 | 6. Update orchestration to call Bug-Fix Agent on failure | ✅ | commit `75d8e065` (added `e2e_pipeline.py`) |
 | 7. PR trigger verification | ✅ | commit `5db15fd7` (PR #1 ran workflow successfully) |
 | 8. Full pipeline verification | ✅ | commit `75d8e065` + evidence in `05951a944` |

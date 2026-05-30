@@ -905,7 +905,7 @@ UI Test Agent                    Bug-Fix Agent
 }
 ```
 
-The Bug-Fix Agent has been deployed in this project as `BugFixAgentHarness-F05tJBICHZ`. The handoff from UI Test Agent to Bug-Fix Agent uses the [A2A protocol](#a2a-protocol--agent-to-agent-communication).
+The Bug-Fix Agent has been deployed in this project as `BugFixAgentHarness-<HARNESS_ID>`. The handoff from UI Test Agent to Bug-Fix Agent uses the [A2A protocol](#a2a-protocol--agent-to-agent-communication).
 
 ---
 
@@ -976,7 +976,7 @@ def trigger_fix_agent_a2a(
         return {"status": "error", "message": str(e)}
 ```
 
-The orchestrator (`e2e_pipeline.py`) calls `trigger_fix_agent_a2a()` after collecting failure data, and the Bug-Fix Agent (`BugFixAgentHarness-F05tJBICHZ`) parses the JSON-encoded payload from its prompt to extract failures, repo URL, and branch.
+The orchestrator (`e2e_pipeline.py`) calls `trigger_fix_agent_a2a()` after collecting failure data, and the Bug-Fix Agent (`BugFixAgentHarness-<HARNESS_ID>`) parses the JSON-encoded payload from its prompt to extract failures, repo URL, and branch.
 
 ### IAM trust model
 
@@ -988,7 +988,7 @@ For A2A to work, the **caller's** execution role must have `bedrock-agentcore:In
   "Statement": [{
     "Effect": "Allow",
     "Action": "bedrock-agentcore:InvokeAgentRuntime",
-    "Resource": "arn:aws:bedrock-agentcore:us-east-1:<ACCOUNT_ID>:runtime/BugFixAgentHarness-F05tJBICHZ"
+    "Resource": "arn:aws:bedrock-agentcore:us-east-1:<ACCOUNT_ID>:runtime/BugFixAgentHarness-<HARNESS_ID>"
   }]
 }
 ```
@@ -1004,7 +1004,7 @@ If A2A is wired through AgentCore Gateway, scope it with Cedar:
 permit(
   principal == AgentCore::Agent::"ui-test-agent",
   action == Action::"InvokeAgentRuntime",
-  resource == AgentCore::Runtime::"BugFixAgentHarness-F05tJBICHZ"
+  resource == AgentCore::Runtime::"BugFixAgentHarness-<HARNESS_ID>"
 );
 
 // Deny invocation of any agent that has write access to production repos
