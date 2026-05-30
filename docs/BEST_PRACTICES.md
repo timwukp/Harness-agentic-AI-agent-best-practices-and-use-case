@@ -1,8 +1,8 @@
 # AWS Bedrock AgentCore Harness — Best Practices
 
-> **Status:** Public Preview (May 2026)  
-> **CLI Version:** `@aws/agentcore` v0.14.0  
-> **SDK:** `boto3` (`bedrock-agentcore` service client)  
+> **Status:** Public Preview (May 2026)
+> **CLI Version:** `@aws/agentcore` v0.14.0
+> **SDK:** `boto3` (`bedrock-agentcore` service client)
 > **Regions:** us-east-1, us-west-2, eu-central-1, ap-southeast-2
 
 ---
@@ -15,12 +15,13 @@
 4. [Project Setup Best Practices](#project-setup-best-practices)
 5. [Model Configuration](#model-configuration)
 6. [Tool Integration](#tool-integration)
-7. [Memory Strategy](#memory-strategy)
-8. [Environment & Skills](#environment--skills)
-9. [Security](#security)
-10. [Cost Control & Observability](#cost-control--observability)
-11. [Development Workflow](#development-workflow)
-12. [Production Readiness Checklist](#production-readiness-checklist)
+7. [Browser Tool — Production Features](#browser-tool--production-features)
+8. [Memory Strategy](#memory-strategy)
+9. [Environment & Skills](#environment--skills)
+10. [Security](#security)
+11. [Cost Control & Observability](#cost-control--observability)
+12. [Development Workflow](#development-workflow)
+13. [Production Readiness Checklist](#production-readiness-checklist)
 
 ---
 
@@ -264,6 +265,226 @@ response = client.invoke_harness(
 # When stopReason == "tool_use", handle client-side and send result back
 ```
 
+> **Browser tool note:** For Browser-tool-specific production features (profiles, session recording, Web Bot Auth), see the next section.
+
+---
+
+## Browser Tool — Production Features
+
+The AgentCore Browser tool is fine for local development out of the box, but moving to production usually requires three additional features that are **not enabled by default**:
+
+| Feature | Production reason |
+|---|---|
+| **Profiles** | Persist authenticated state so each test run doesn't pay the login round-trip |
+| **Session Recording** | Compliance, audit, and debugging — replay every action a browser session took |
+| **Web Bot Auth** | Cryptographically identify the browser to opt-in sites that reduce CAPTCHA for trusted bots |
+
+Enable each only when you need it; defaults are conservative for cost and security reasons.
+
+### 7.1 Browser Profiles — persist authenticated state across sessions
+
+**What it is.** A named, AWS-managed storage container that holds cookies, local storage, and session state for the browser. When a browser session starts with a profile reference, the browser loads that state — equivalent to "the user is already logged in."
+
+**When to use:**
+- Repeated tests that all need the same authenticated user (login flow runs once, all subsequent runs skip it)
+- SSO-heavy applications where the login flow is slow or interactive (MFA, OIDC redirect chains)
+- Demo / customer-facing scenarios where you want a stable "demo user" session
+
+**When NOT to use:**
+- Login flow itself is what you're testing — you must start unauthenticated
+- Multi-tenant agents where different actors must NEVER share state — risk of session leakage between tenants
+- Short-lived auth (tokens that expire faster than your test cadence) — re-login anyway
+- Anything testing logout / session-expiry behaviour
+
+**Creating a profile (control plane):**
+
+```python
+import boto3
+
+control = boto3.client("bedrock-agentcore-control", region_name="us-west-2")
+profile = control.create_browser_profile(
+    name="qa-test-user-staging",
+    description="Pre-authenticated QA user for staging.example.com tests",
+    # Encryption uses AWS-managed key by default; specify CMK for stricter control
+    # kmsKeyArn="arn:aws:kms:us-west-2:<ACCOUNT_ID>:key/<KEY_ID>",
+)
+profile_id = profile["profileIdentifier"]
+```
+
+Then populate it once by running a session that performs the login. Subsequent sessions reference the profile and inherit the stored state.
+
+**Using a profile (data plane):**
+
+```python
+data = boto3.client("bedrock-agentcore", region_name="us-west-2")
+session = data.start_browser_session(
+    browserIdentifier="aws.browser.v1",
+    profileConfiguration={"profileIdentifier": profile_id},
+    # ... viewport, timeout, etc.
+)
+```
+
+**IAM:**
+- Caller needs `bedrock-agentcore:CreateBrowserProfile` (control) and `bedrock-agentcore:StartBrowserSession` (data) — scope `Resource` to specific profile ARNs in production
+
+**Security considerations:**
+- **Per-tenant scoping:** Always use a profile-per-actor naming scheme (e.g. `qa-{tenantId}-staging`); never share a profile across tenants
+- **Rotation:** Profiles persist indefinitely until deleted; treat them like any other long-lived credential and rotate periodically
+- **Auditing:** CloudTrail logs every `StartBrowserSession` call, including the `profileIdentifier` used — enable trails on the AgentCore control plane
+
+**Cost impact:** Profiles save Bedrock token cost on every test run that would otherwise drive a multi-step login. Storage is included in the Browser tool pricing — no separate per-profile fee at the time of writing.
+
+**Anti-pattern:** Putting **production** credentials in a profile used by an agent that ever runs against staging or dev. If the profile leaks, all environments are compromised. Keep one profile per environment.
+
+### 7.2 Session Recording — capture every action for compliance and debugging
+
+**What it is.** Bedrock AgentCore Browser can record an entire browser session as a structured log of DOM mutations, network calls, console output, and screenshots. Recordings are written to an S3 bucket you provide and can be replayed in the AgentCore console.
+
+**When to enable:**
+- **Compliance / audit:** SOC2, HIPAA, or internal policy requires evidence that automation accessed only what it was authorized to
+- **Production tests:** when an agent fails in CI, the recording is the fastest way to root-cause without re-running
+- **Flaky test diagnosis:** intermittent failures often only reveal themselves on the 50th replay
+- **Customer demos:** capture once, replay forever — no live infra required
+
+**When NOT to enable:**
+- Local dev iteration — slows everything down for no benefit
+- Tests on PII-containing pages without strong S3 + KMS hygiene — recordings can capture screen content including sensitive data
+
+**Configuration (data plane):**
+
+```python
+session = data.start_browser_session(
+    browserIdentifier="aws.browser.v1",
+    recordingConfiguration={
+        "s3Bucket": "agentcore-browser-recordings-prod",
+        "s3KeyPrefix": f"qa-runs/{date.today().isoformat()}/",
+        # Optional: customer-managed KMS key for the recording
+        "kmsKeyArn": "arn:aws:kms:us-west-2:<ACCOUNT_ID>:key/<KEY_ID>",
+    },
+    # ... profileConfiguration, viewport, timeout, etc.
+)
+```
+
+**IAM — execution role needs to write to the bucket:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "s3:PutObject",
+      "s3:PutObjectAcl"
+    ],
+    "Resource": "arn:aws:s3:::agentcore-browser-recordings-prod/qa-runs/*"
+  }]
+}
+```
+
+**S3 bucket policy — only AgentCore writes, only your account reads:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAgentCoreWrite",
+      "Effect": "Allow",
+      "Principal": {"Service": "bedrock-agentcore.amazonaws.com"},
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::agentcore-browser-recordings-prod/*",
+      "Condition": {"StringEquals": {"aws:SourceAccount": "<ACCOUNT_ID>"}}
+    },
+    {
+      "Sid": "DenyUnencryptedUploads",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::agentcore-browser-recordings-prod/*",
+      "Condition": {"Null": {"s3:x-amz-server-side-encryption": "true"}}
+    }
+  ]
+}
+```
+
+**Retention strategy.** Use S3 Lifecycle rules:
+
+```json
+{
+  "Rules": [{
+    "Id": "ExpireBrowserRecordings",
+    "Status": "Enabled",
+    "Prefix": "qa-runs/",
+    "Expiration": {"Days": 90},
+    "Transitions": [{"Days": 30, "StorageClass": "GLACIER"}]
+  }]
+}
+```
+
+90-day retention covers most audit windows; tier to Glacier after 30 days to keep storage cost trivial.
+
+**Cost impact:**
+- S3 storage: ~$0.023/GB/month standard, ~$0.004/GB/month Glacier
+- A typical 5-minute test session produces 5–20 MB recorded — ~$0.002 per recording in standard tier
+- Browser-side overhead is included in per-minute Browser pricing — no separate recording fee
+
+**Security:**
+- **Always encrypt at rest** — bucket policy `DenyUnencryptedUploads` above
+- **Use a KMS CMK if recordings touch PII** — the default AWS-managed key is fine for internal QA, but customer-managed gives you key-rotation and access-audit control
+- **Object Lock** on the bucket if recordings are evidentiary (legal / compliance) — prevents tampering even by privileged IAM users
+
+### 7.3 Web Bot Auth — cryptographic identity to reduce CAPTCHA friction
+
+**What it is.** Web Bot Auth is a draft IETF standard ([draft-meunier-web-bot-auth](https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth/)) where a bot signs each HTTP request with a private key, and the target site verifies the signature against a registered public key. Sites that opt in can use this signal to **skip CAPTCHA challenges** for trusted bots while still blocking unknown automation.
+
+The AgentCore Browser supports configuring a key pair so all browser-tool requests carry the signature.
+
+**When useful:**
+- The target site has explicitly opted into Web Bot Auth (e.g. participates in an industry pilot, has an `/.well-known/http-message-signatures-directory` endpoint)
+- You're running synthetic monitoring against your own production sites and want monitoring traffic to bypass your bot mitigation
+- You're testing partner sites where you have a relationship to register your bot identity
+
+**When NOT useful:**
+- Sites that haven't opted in — Web Bot Auth headers are ignored; CAPTCHA still fires
+- Test environments you control — disable bot mitigation for the test source IP / VPC instead
+- Any site where bypassing CAPTCHA would violate ToS — Web Bot Auth is a cooperative protocol, not a circumvention tool
+
+**Configuration:**
+
+```python
+# 1. Generate Ed25519 key pair, register the public key with the target site's
+#    Web Bot Auth directory (out-of-band; site-specific process)
+# 2. Store the private key in AWS Secrets Manager
+# 3. Configure the Browser session to sign with that key
+
+session = data.start_browser_session(
+    browserIdentifier="aws.browser.v1",
+    webBotAuthConfiguration={
+        "signingKeySecretArn": "arn:aws:secretsmanager:us-west-2:<ACCOUNT_ID>:secret:browser-webbotauth-key-XXXX",
+        "keyId": "ui-test-agent-2026-q2",
+    },
+    # ... profileConfiguration, recordingConfiguration, etc.
+)
+```
+
+**IAM — execution role needs read access to the secret:**
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "secretsmanager:GetSecretValue",
+  "Resource": "arn:aws:secretsmanager:us-west-2:<ACCOUNT_ID>:secret:browser-webbotauth-key-*"
+}
+```
+
+**Limitations:**
+
+- Not a CAPTCHA bypass — sites still choose whether to honor signed bots
+- Adoption is early (2026); most public sites do not yet recognize it
+- Each origin tracks its own list of trusted public keys — you cannot register once for the whole web
+
+**Key rotation:** Treat the signing key like any other long-lived credential. Generate a new key annually, register the new public key with the target site's directory before deactivating the old one, then update `signingKeySecretArn` and `keyId` in the session config.
+
 ---
 
 ## Memory Strategy
@@ -481,6 +702,16 @@ Use AgentCore Gateway + Cedar policies to control:
 - Under which conditions
 - With which arguments
 
+### Browser Tool Security Notes
+
+When using Browser-tool production features (Section 7):
+
+- **Profiles** must be scoped per-tenant — sharing across tenants creates a session leak risk
+- **Recording** S3 buckets must enforce encryption (KMS) and deny unencrypted uploads via bucket policy
+- **Web Bot Auth** signing keys belong in Secrets Manager with rotation; never embed in code or `harness.json`
+
+See Section 7 for full configuration and IAM policies.
+
 ---
 
 ## Cost Control & Observability
@@ -514,6 +745,7 @@ agentcore add harness --name my-agent \
 | Use Haiku for simple tasks | 10x cheaper than Opus |
 | Set `idleRuntimeSessionTimeout` low | Reduces warm microVM costs |
 | Use `truncation-strategy: summarization` | Reduces context window size over long sessions |
+| Use Browser **profiles** (Section 7.1) | Skip login token cost on every test |
 
 ### Observability (Zero Config)
 
@@ -599,6 +831,9 @@ agentcore invoke --harness my-agent --system-prompt "Be thorough." "Explain quan
 - [ ] **Custom container tested:** If using custom environment, verified on `linux/arm64`
 - [ ] **Error handling:** Client handles `runtimeClientError` events in stream
 - [ ] **Session ID strategy:** Documented how session IDs are generated and reused
+- [ ] **Browser profiles:** Per-tenant scoping if Browser tool is used (Section 7.1)
+- [ ] **Browser recording:** S3 bucket + KMS configured if compliance-bound (Section 7.2)
+- [ ] **Web Bot Auth:** Signing key in Secrets Manager with rotation policy if applicable (Section 7.3)
 
 ---
 
@@ -641,7 +876,9 @@ data.invoke_agent_runtime_command(agentRuntimeArn="...", runtimeSessionId="...",
 - Model invocations billed per token (Bedrock pricing)
 - Code Interpreter, Browser, Memory billed per usage
 - MicroVM compute included in AgentCore Runtime pricing
+- Browser session recording: S3 storage cost only (Browser-side overhead included in Browser pricing)
+- Browser profiles: storage included in Browser pricing at the time of writing
 
 ---
 
-*Last updated: 2026-05-16*
+*Last updated: 2026-05-30*
