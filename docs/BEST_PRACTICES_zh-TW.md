@@ -1,8 +1,8 @@
 # AWS Bedrock AgentCore Harness — 最佳實踐指南
 
-> **狀態：** 公開預覽（2026 年 5 月）  
-> **CLI 版本：** `@aws/agentcore` v0.14.0  
-> **SDK：** `boto3`（`bedrock-agentcore` service client）  
+> **狀態：** 公開預覽（2026 年 5 月）
+> **CLI 版本：** `@aws/agentcore` v0.14.0
+> **SDK：** `boto3`（`bedrock-agentcore` service client）
 > **可用區域：** us-east-1、us-west-2、eu-central-1、ap-southeast-2
 
 ---
@@ -15,12 +15,13 @@
 4. [專案設定最佳實踐](#專案設定最佳實踐)
 5. [模型配置](#模型配置)
 6. [工具整合](#工具整合)
-7. [記憶體策略](#記憶體策略)
-8. [環境與 Skills](#環境與-skills)
-9. [安全性](#安全性)
-10. [成本控制與可觀測性](#成本控制與可觀測性)
-11. [開發工作流程](#開發工作流程)
-12. [正式環境就緒檢查清單](#正式環境就緒檢查清單)
+7. [Browser 工具 — 正式環境功能](#browser-工具--正式環境功能)
+8. [記憶體策略](#記憶體策略)
+9. [環境與 Skills](#環境與-skills)
+10. [安全性](#安全性)
+11. [成本控制與可觀測性](#成本控制與可觀測性)
+12. [開發工作流程](#開發工作流程)
+13. [正式環境就緒檢查清單](#正式環境就緒檢查清單)
 
 ---
 
@@ -264,6 +265,226 @@ response = client.invoke_harness(
 # 當 stopReason == "tool_use" 時，在 client-side 處理並回傳結果
 ```
 
+> **Browser 工具備註：** Browser 工具的正式環境功能（設定檔、Session 錄製、Web Bot Auth），請參考下一章節。
+
+---
+
+## Browser 工具 — 正式環境功能
+
+AgentCore Browser 工具預設設定下適合本地開發，但移到正式環境時通常需要三個額外功能（**預設都不啟用**）：
+
+| 功能 | 正式環境的理由 |
+|---|---|
+| **設定檔（Profiles）** | 保留已驗證狀態，每次測試不必再付登入流程的 token 成本 |
+| **Session 錄製（Recording）** | 合規、稽核、除錯 — 重播一個 Browser session 的所有動作 |
+| **Web Bot Auth** | 用密碼學身份識別 Browser，opt-in 的網站可以對信任的 bot 減少 CAPTCHA |
+
+只在需要時各別啟用；預設關閉是基於成本和安全的保守選擇。
+
+### 7.1 Browser 設定檔 — 跨 session 保留已驗證狀態
+
+**功能說明。** 一個由 AWS 管理、具名的儲存容器，內含 Browser 的 cookie、local storage、session 狀態。當 Browser session 啟動時引用一個設定檔，Browser 會載入該狀態 — 等同於「使用者已經登入過」。
+
+**何時使用：**
+- 多次測試需要同一個已驗證使用者（登入流程跑一次，後續所有測試直接跳過登入）
+- SSO 流程繁瑣的應用（MFA、OIDC 重導向鏈、緩慢或互動式登入）
+- 示範 / 客戶展示場景中，你想要一個穩定的「示範使用者」session
+
+**何時不要使用：**
+- 登入流程本身就是要測試的目標 — 必須以未驗證狀態開始
+- 多租戶 agent，不同 actor 絕對不能共享狀態 — 有 session 洩漏風險
+- 短期憑證（token 過期速度比測試頻率快）— 反正都要重登入
+- 任何測試登出 / session 過期行為的場景
+
+**建立設定檔（控制平面）：**
+
+```python
+import boto3
+
+control = boto3.client("bedrock-agentcore-control", region_name="us-west-2")
+profile = control.create_browser_profile(
+    name="qa-test-user-staging",
+    description="預先驗證的 QA 使用者，用於 staging.example.com 的測試",
+    # 加密預設使用 AWS 管理金鑰；如需更嚴格控制可指定 CMK
+    # kmsKeyArn="arn:aws:kms:us-west-2:<ACCOUNT_ID>:key/<KEY_ID>",
+)
+profile_id = profile["profileIdentifier"]
+```
+
+之後執行一次包含登入動作的 session 把狀態填進去。後續 session 引用這個設定檔即繼承已儲存的狀態。
+
+**使用設定檔（資料平面）：**
+
+```python
+data = boto3.client("bedrock-agentcore", region_name="us-west-2")
+session = data.start_browser_session(
+    browserIdentifier="aws.browser.v1",
+    profileConfiguration={"profileIdentifier": profile_id},
+    # ... viewport, timeout 等
+)
+```
+
+**IAM：**
+- 呼叫者需要 `bedrock-agentcore:CreateBrowserProfile`（控制平面）和 `bedrock-agentcore:StartBrowserSession`（資料平面）— 正式環境中 `Resource` 應 scope 到特定設定檔 ARN
+
+**安全考量：**
+- **每個租戶獨立 scope：** 使用「設定檔每 actor 一個」的命名規則（如 `qa-{tenantId}-staging`），絕不跨租戶共享
+- **輪換：** 設定檔在刪除前會永久保留；視同任何長期憑證，定期輪換
+- **稽核：** CloudTrail 會記錄每次 `StartBrowserSession` 呼叫，包含使用的 `profileIdentifier` — 在 AgentCore 控制平面啟用追蹤
+
+**成本影響：** 設定檔節省每次測試需要走多步驟登入流程的 Bedrock token 成本。儲存包含在 Browser 工具定價中 — 寫作當下沒有單獨的設定檔費用。
+
+**反模式：** 把**正式環境**憑證放進一個會跑在 staging 或 dev 的 agent 所用的設定檔。如果該設定檔洩漏，所有環境都被攻陷。每個環境一個設定檔。
+
+### 7.2 Session 錄製 — 為合規與除錯擷取每個動作
+
+**功能說明。** Bedrock AgentCore Browser 可把整個 Browser session 錄製為一份結構化日誌，包含 DOM 變更、網路呼叫、console 輸出、螢幕截圖。錄製寫入你提供的 S3 bucket，可在 AgentCore 主控台中重播。
+
+**何時啟用：**
+- **合規 / 稽核：** SOC2、HIPAA 或內部政策要求保留自動化存取何種資源的證據
+- **正式環境測試：** 當 agent 在 CI 中失敗時，錄製是不重跑就能找出根因的最快路徑
+- **不穩定測試診斷：** 偶發失敗常常只在第 50 次重播時才現形
+- **客戶示範：** 錄一次、重播無數次 — 不需要實時基礎設施
+
+**何時不要啟用：**
+- 本地開發迭代 — 拖慢一切，毫無收益
+- 含有 PII 頁面的測試但 S3 + KMS 衛生不嚴 — 錄製會擷取包含敏感資料的螢幕內容
+
+**設定（資料平面）：**
+
+```python
+session = data.start_browser_session(
+    browserIdentifier="aws.browser.v1",
+    recordingConfiguration={
+        "s3Bucket": "agentcore-browser-recordings-prod",
+        "s3KeyPrefix": f"qa-runs/{date.today().isoformat()}/",
+        # 可選：客戶管理的 KMS 金鑰加密錄製
+        "kmsKeyArn": "arn:aws:kms:us-west-2:<ACCOUNT_ID>:key/<KEY_ID>",
+    },
+    # ... profileConfiguration、viewport、timeout 等
+)
+```
+
+**IAM — 執行角色需要寫入 bucket 的權限：**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "s3:PutObject",
+      "s3:PutObjectAcl"
+    ],
+    "Resource": "arn:aws:s3:::agentcore-browser-recordings-prod/qa-runs/*"
+  }]
+}
+```
+
+**S3 bucket 政策 — 只有 AgentCore 能寫，只有你的帳號能讀：**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAgentCoreWrite",
+      "Effect": "Allow",
+      "Principal": {"Service": "bedrock-agentcore.amazonaws.com"},
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::agentcore-browser-recordings-prod/*",
+      "Condition": {"StringEquals": {"aws:SourceAccount": "<ACCOUNT_ID>"}}
+    },
+    {
+      "Sid": "DenyUnencryptedUploads",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::agentcore-browser-recordings-prod/*",
+      "Condition": {"Null": {"s3:x-amz-server-side-encryption": "true"}}
+    }
+  ]
+}
+```
+
+**保留策略。** 用 S3 Lifecycle 規則：
+
+```json
+{
+  "Rules": [{
+    "Id": "ExpireBrowserRecordings",
+    "Status": "Enabled",
+    "Prefix": "qa-runs/",
+    "Expiration": {"Days": 90},
+    "Transitions": [{"Days": 30, "StorageClass": "GLACIER"}]
+  }]
+}
+```
+
+90 天保留期涵蓋多數稽核窗口；30 天後轉到 Glacier 讓儲存成本變得微不足道。
+
+**成本影響：**
+- S3 儲存：標準層約 $0.023/GB/月，Glacier 約 $0.004/GB/月
+- 典型 5 分鐘測試 session 產生 5–20 MB 錄製 — 標準層約 $0.002/錄製
+- Browser 端開銷已包含在 Browser 每分鐘定價中 — 沒有額外的錄製費用
+
+**安全：**
+- **永遠在儲存層加密** — 用上面 bucket 政策的 `DenyUnencryptedUploads`
+- **如果錄製可能涉及 PII，使用 KMS CMK** — 預設 AWS 管理金鑰對內部 QA 夠用，但客戶管理金鑰可以做金鑰輪換和存取稽核
+- **如果錄製具證據效力（法律 / 合規），啟用 bucket 的 Object Lock** — 即使是有特權的 IAM 使用者也無法竄改
+
+### 7.3 Web Bot Auth — 用密碼學身份減少 CAPTCHA 摩擦
+
+**功能說明。** Web Bot Auth 是一個 IETF 草案標準（[draft-meunier-web-bot-auth](https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth/)），bot 用私鑰簽署每個 HTTP 請求，目標網站用註冊過的公鑰驗證簽章。Opt-in 的網站可以用這個訊號**對信任的 bot 跳過 CAPTCHA**，同時繼續封鎖未知的自動化。
+
+AgentCore Browser 支援設定金鑰對，所有 Browser 工具的請求都會帶簽章。
+
+**何時有用：**
+- 目標網站已經明確 opt-in Web Bot Auth（例如參與業界試行、有 `/.well-known/http-message-signatures-directory` 端點）
+- 對自家正式環境跑合成監控，希望監控流量繞過自家的 bot 緩解
+- 測試合作夥伴的網站，且雙方有關係可以註冊你的 bot 身份
+
+**何時沒有用：**
+- 沒有 opt-in 的網站 — Web Bot Auth header 會被忽略，CAPTCHA 照樣彈出來
+- 你自己控制的測試環境 — 對測試來源 IP / VPC 直接停用 bot 緩解就好
+- 任何「繞過 CAPTCHA 會違反服務條款」的網站 — Web Bot Auth 是合作協議，不是繞過工具
+
+**設定：**
+
+```python
+# 1. 產生 Ed25519 金鑰對，把公鑰註冊到目標網站的 Web Bot Auth 目錄
+#    (out-of-band，每個網站流程不同)
+# 2. 私鑰存進 AWS Secrets Manager
+# 3. 設定 Browser session 用該金鑰簽署
+
+session = data.start_browser_session(
+    browserIdentifier="aws.browser.v1",
+    webBotAuthConfiguration={
+        "signingKeySecretArn": "arn:aws:secretsmanager:us-west-2:<ACCOUNT_ID>:secret:browser-webbotauth-key-XXXX",
+        "keyId": "ui-test-agent-2026-q2",
+    },
+    # ... profileConfiguration、recordingConfiguration 等
+)
+```
+
+**IAM — 執行角色需要讀取 secret 的權限：**
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "secretsmanager:GetSecretValue",
+  "Resource": "arn:aws:secretsmanager:us-west-2:<ACCOUNT_ID>:secret:browser-webbotauth-key-*"
+}
+```
+
+**限制：**
+
+- 不是 CAPTCHA 繞過 — 網站仍可選擇是否認可簽章 bot
+- 採用度仍處早期（2026 年）；多數公開網站尚未識別此標準
+- 每個來源各自管理信任的公鑰清單 — 你不能一次註冊就通行所有網站
+
+**金鑰輪換：** 把簽署金鑰視為任何長期憑證。每年產生新金鑰，在停用舊金鑰之前先把新公鑰註冊到目標網站的目錄，再更新 session 設定中的 `signingKeySecretArn` 和 `keyId`。
+
 ---
 
 ## 記憶體策略
@@ -481,6 +702,16 @@ agentcore add harness --name internal-agent \
 - 在什麼條件下
 - 用什麼參數
 
+### Browser 工具安全備註
+
+使用 Browser 工具的正式環境功能（章節 7）時：
+
+- **設定檔**必須以租戶為單位獨立 scope — 跨租戶共享會有 session 洩漏風險
+- **錄製**的 S3 bucket 必須以 KMS 強制加密，並用 bucket 政策拒絕未加密上傳
+- **Web Bot Auth** 簽署金鑰要存進 Secrets Manager 並設輪換政策；絕不嵌入程式碼或 `harness.json`
+
+完整設定和 IAM policy 請參考章節 7。
+
 ---
 
 ## 成本控制與可觀測性
@@ -514,6 +745,7 @@ agentcore add harness --name my-agent \
 | 簡單任務用 Haiku | 比 Opus 便宜 10 倍 |
 | 設低 `idleRuntimeSessionTimeout` | 減少閒置 microVM 成本 |
 | 用 `truncation-strategy: summarization` | 長 session 中減少 context window 大小 |
+| 使用 Browser **設定檔**（章節 7.1） | 每次測試跳過登入 token 成本 |
 
 ### 可觀測性（零設定）
 
@@ -599,6 +831,9 @@ agentcore invoke --harness my-agent --system-prompt "詳細回答。" "解釋量
 - [ ] **自訂容器已測試：** 如果使用自訂環境，已在 `linux/arm64` 上驗證
 - [ ] **錯誤處理：** Client 處理串流中的 `runtimeClientError` 事件
 - [ ] **Session ID 策略：** 已記錄 session ID 如何產生和重複使用
+- [ ] **Browser 設定檔：** 如果使用 Browser 工具，每個租戶獨立 scope（章節 7.1）
+- [ ] **Browser 錄製：** 如果有合規需求，S3 bucket + KMS 已設定（章節 7.2）
+- [ ] **Web Bot Auth：** 如果適用，簽署金鑰在 Secrets Manager 並有輪換政策（章節 7.3）
 
 ---
 
@@ -641,7 +876,9 @@ data.invoke_agent_runtime_command(agentRuntimeArn="...", runtimeSessionId="...",
 - 模型呼叫按 token 計費（Bedrock 定價）
 - Code Interpreter、Browser、Memory 按使用量計費
 - MicroVM 運算包含在 AgentCore Runtime 定價中
+- Browser session 錄製：只有 S3 儲存成本（Browser 端開銷已包含在 Browser 定價中）
+- Browser 設定檔：寫作當下儲存包含在 Browser 定價中
 
 ---
 
-*最後更新：2026-05-16*
+*最後更新：2026-05-30*
