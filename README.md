@@ -155,6 +155,7 @@ agent('Test login at https://the-internet.herokuapp.com/login. Type tomsmith/Sup
 | [Admin Portal](docs/ADMIN_PORTAL.md) | Dashboard for managing test suites and viewing reports |
 | [Triggers](docs/TRIGGERS.md) | 4 trigger mechanisms (CI/CD, portal, scheduled, webhook) |
 | [Development Workflow](docs/DEVELOPMENT_WORKFLOW.md) | Issue → fix → PR methodology for contributors |
+| [Production Hardening](docs/PRODUCTION_HARDENING.md) | Design playbook for Container deploy, S3 recording, profiles, Web Bot Auth, CloudWatch alarms, online eval |
 
 
 ## Cost
