@@ -128,7 +128,7 @@ A Harness AgentCore application that replaces human QA testers in the SDLC. The 
                     │   Bug-Fix Agent      │
                     │   (Harness, deployed │
                     │   as BugFixAgent-    │
-                    │   Harness-F05tJBICHZ)│
+                    │   Harness-<HARNESS_ID>)│
                     └──────────────────────┘
 ```
 
@@ -434,7 +434,7 @@ def trigger_fix_agent_a2a(failures, repository_url="", branch=""):
 
 This is **direct agent-to-agent invocation** (A2A pattern) — no orchestrator middleman. The full design rationale, IAM model, Cedar policy example, and decision matrix (A2A vs Step Functions) live in [ARCHITECTURE.md §13](ARCHITECTURE.md#a2a-protocol--agent-to-agent-communication).
 
-The Bug-Fix Agent that receives this call is `BugFixAgentHarness-F05tJBICHZ` (deployed in commit `75d8e065`).
+The Bug-Fix Agent that receives this call is `BugFixAgentHarness-<HARNESS_ID>` (deployed in commit `75d8e065`).
 
 ## Security Considerations
 
@@ -517,7 +517,7 @@ client.create_harness(
 | Need to embed agent in existing application | Runtime |
 | Production with minimal ops overhead | Harness |
 
-This project uses **Runtime** for the UI Test Agent (which needs the custom path-restricted file tools and MCP client wiring) and **Harness** for the Bug-Fix Agent (`BugFixAgentHarness-F05tJBICHZ`, which only needs Code Interpreter + GitHub MCP).
+This project uses **Runtime** for the UI Test Agent (which needs the custom path-restricted file tools and MCP client wiring) and **Harness** for the Bug-Fix Agent (`BugFixAgentHarness-<HARNESS_ID>`, which only needs Code Interpreter + GitHub MCP).
 
 ### Deployment Scripts
 
