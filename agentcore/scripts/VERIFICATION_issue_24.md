@@ -2,104 +2,161 @@
 
 ## Summary
 
-`UITestAgentHarness` console showed "Memory is not configured", but on
-inspection an AgentCore Memory resource **already exists** with all four
-strategies fully configured. The original Runtime (`uitestagent_uitestagent`)
-has it attached via an env var; the Harness was deployed separately
-(`deploy_harness.py`) without it.
+`UITestAgentHarness` had no Memory configured. An AgentCore Memory resource
+(`uitestagent_uitestagentMemory`) **already existed** with all four strategies
+fully configured — created when the original Runtime was deployed, but never
+attached to the Harness which was deployed separately via `deploy_harness.py`.
 
-This issue is therefore about **attaching the existing memory to the harness**,
-not about creating a new memory resource.
+This issue attaches the existing Memory to the Harness **programmatically**
+via `update_harness` (boto3 ≥ 1.43.18). The original PR assumed this required
+a manual console step; further investigation showed the operation is
+available in the public SDK once boto3 is recent enough. See AGENTS.md §3.6
+and §7.5.
 
 ## Existing Memory resource (verified live)
 
 ```
-Name:                uitestagent_uitestagentMemory
+Name:                uitestagent_uitestagentMemory-<MEM_ID>
 Status:              ACTIVE
 Created:             2026-05-16
 Event expiry:        30 days
 Strategies (4):
-  EPISODIC          → /episodes/{actorId}/{sessionId}
-  SEMANTIC          → /users/{actorId}/facts
-  SUMMARIZATION     → /summaries/{actorId}/{sessionId}
-  USER_PREFERENCE   → /users/{actorId}/preferences
+  EPISODIC          → /episodes/{actorId}/{sessionId}    (uitestagentMemory_Episodic-<ID>)
+  SEMANTIC          → /users/{actorId}/facts             (uitestagentMemory_Semantic-<ID>)
+  SUMMARIZATION     → /summaries/{actorId}/{sessionId}   (uitestagentMemory_Summarization-<ID>)
+  USER_PREFERENCE   → /users/{actorId}/preferences       (uitestagentMemory_Userpreference-<ID>)
 ```
 
 Matches the design in `docs/ARCHITECTURE.md §7 Self-Learning & Memory
 Architecture`.
 
-## How the original Runtime has Memory attached
+## Programmatic attach via `update_harness`
+
+The script `agentcore/scripts/attach_memory.py` calls:
+
+```python
+control = boto3.client("bedrock-agentcore-control", region_name="us-east-1")
+control.update_harness(
+    harnessId="UITestAgentHarness-<ID>",
+    memory={
+        "optionalValue": {
+            "agentCoreMemoryConfiguration": {
+                "arn": "arn:aws:bedrock-agentcore:us-east-1:<ACCOUNT_ID>:memory/uitestagent_uitestagentMemory-<MEM_ID>",
+                "actorId": "ci-pipeline",
+                "messagesCount": 20,
+                "retrievalConfig": {
+                    "/episodes/{actorId}/{sessionId}":  {"strategyId": "uitestagentMemory_Episodic-<ID>",     "topK": 10, "relevanceScore": 0.2},
+                    "/users/{actorId}/facts":           {"strategyId": "uitestagentMemory_Semantic-<ID>",     "topK": 10, "relevanceScore": 0.2},
+                    "/summaries/{actorId}/{sessionId}": {"strategyId": "uitestagentMemory_Summarization-<ID>","topK": 10, "relevanceScore": 0.2},
+                    "/users/{actorId}/preferences":     {"strategyId": "uitestagentMemory_Userpreference-<ID>","topK": 10, "relevanceScore": 0.2},
+                }
+            }
+        }
+    },
+    clientToken="...",
+)
+```
+
+Two field-name gotchas (recorded in [AGENTS.md §3.2](../../AGENTS.md#32-api-field-name-gotchas)):
+
+1. The memory wrapper uses **`optionalValue`** at the outer layer — pass
+   `{"optionalValue": {"agentCoreMemoryConfiguration": {...}}}`, not
+   `{"agentCoreMemoryConfiguration": {...}}` directly.
+2. Each entry in `retrievalConfig` uses **`strategyId`** — NOT
+   `memoryStrategyId` (the latter is what you'd guess from the
+   memory resource shape, but it's wrong here).
+
+## Live verification
+
+After running the script, `get_harness` confirms the attach succeeded:
 
 ```
-Runtime:  uitestagent_uitestagent
-Env var:  MEMORY_UITESTAGENTMEMORY_ID = uitestagent_uitestagentMemory-<MEM_ID>
+$ python agentcore/scripts/attach_memory.py
+boto3 1.43.18 OK
+
+Region:  us-east-1
+Account: <ACCOUNT_ID>
+
+Searching for harness: UITestAgentHarness
+  Found: arn:aws:bedrock-agentcore:us-east-1:<ACCOUNT_ID>:harness/UITestAgentHarness-<ID>  status=READY
+Searching for memory with name prefix: uitestagent_uitestagentMemory
+  Found: arn:aws:bedrock-agentcore:us-east-1:<ACCOUNT_ID>:memory/uitestagent_uitestagentMemory-<MEM_ID>  status=ACTIVE
+  Strategies (4):
+    - EPISODIC         → /episodes/{actorId}/{sessionId}    (uitestagentMemory_Episodic-<ID>)
+    - SEMANTIC         → /users/{actorId}/facts             (uitestagentMemory_Semantic-<ID>)
+    - SUMMARIZATION    → /summaries/{actorId}/{sessionId}   (uitestagentMemory_Summarization-<ID>)
+    - USER_PREFERENCE  → /users/{actorId}/preferences       (uitestagentMemory_Userpreference-<ID>)
+
+✓ Memory is ALREADY ATTACHED (idempotent — no action taken)
+  actorId:       ci-pipeline
+  messagesCount: 20
+  retrievalConfig namespaces: 4
+    - /episodes/{actorId}/{sessionId}          topK=10  relevance=0.2
+    - /users/{actorId}/preferences             topK=10  relevance=0.2
+    - /summaries/{actorId}/{sessionId}         topK=10  relevance=0.2
+    - /users/{actorId}/facts                   topK=10  relevance=0.2
 ```
 
-The Strands SDK reads `MEMORY_*_ID` env vars at startup to bootstrap
-`get_memory_session_manager()` (see `app/ui-test-agent/main.py` line ~152).
+Exit code: 0 (idempotent — safe to re-run any time).
 
-## Why we can't programmatically attach
-
-Public boto3 (1.42.79) does NOT expose `CreateHarness` / `UpdateHarness`.
-Probing the control plane confirms:
-
-```
-$ aws bedrock-agentcore-control update-agent-runtime --agent-runtime-id ...
-
-ValidationException: This agent runtime is managed by harness '...' and
-cannot be updated directly. Use UpdateHarness to update this resource.
-```
-
-Until `UpdateHarness` ships in public SDK (preview API), Memory attachment
-to a Harness is a **console-only** operation.
-
-## Manual attachment steps
-
-1. AWS Console → **Bedrock AgentCore → Harness → UITestAgentHarness**
-2. Click **[Edit]**
-3. In the **Memory** section, select the existing memory:
-   `uitestagent_uitestagentMemory`
-4. **Save** and wait for harness status to return to READY (~30-60 sec)
-
-After save, the harness's environment variables should include:
-```
-MEMORY_UITESTAGENTUITESTAGENTMEMORY_ID = uitestagent_uitestagentMemory-<MEM_ID>
-```
+The same evidence is also visible in the AWS console:
+*Bedrock AgentCore → Harness → UITestAgentHarness → Memory section*
+shows the memory resource configured with actorId `ci-pipeline` and
+4 retrieval configs.
 
 ## actorId convention for UITestAgentHarness
-
-When invoking the harness, pass `actorId` per call to scope memory namespaces:
 
 | Caller | actorId | Why |
 |---|---|---|
 | **CI pipeline (GitHub Actions)** | `ci-pipeline` | All CI runs share memory — agent learns app-wide patterns |
 | **Ad-hoc dev** | `dev-{username}` | Per-developer scratch memory |
-| **Admin Portal manual run** (future) | `portal-{cognito-user}` | Per-user memory once #N12 lands |
-| **Multi-tenant** (future) | `tenant-{tenantId}` | Tenant isolation per #N12 |
+| **Admin Portal manual run** (future) | `portal-{cognito-user}` | Per-user memory once #36 lands |
+| **Multi-tenant** (future) | `tenant-{tenantId}` | Tenant isolation per #35 |
 
 `{actorId}` substitutes into the memory namespace templates above.
 Example: CI run with `actorId=ci-pipeline` writes to
 `/users/ci-pipeline/facts` (semantic), `/episodes/ci-pipeline/{sessionId}`
 (episodic), etc.
 
-## Verification (after console attach)
+## Tooling note (recorded in [AGENTS.md §2](../../AGENTS.md#2-tooling-versions-that-matter))
 
-Run the helper script:
-```
-python agentcore/scripts/attach_memory.py
-```
-Expected output: `✓ Memory already attached via env var: MEMORY_UITESTAGENTUITESTAGENTMEMORY_ID`
+This script requires **boto3 ≥ 1.43.18**. Older versions (e.g. 1.42.79
+shipped with system pip on this project's environment) silently lack
+the 5 Harness operations — the client object simply has no
+`create_harness` / `update_harness` etc. attributes. The script
+verifies the version on startup and exits with a clear error message
++ upgrade instructions if too old.
 
-Run a test invocation via console with prompt asking for past memories,
-e.g. *"What patterns did we discover in past test runs?"* — agent should
-draw on stored episodic/semantic memory.
+## Acceptance criteria status
 
-CloudWatch metrics: `aws bedrock-agentcore list-memory-records` should show
-records being created during invocations.
+| Criterion | Status |
+|---|---|
+| Memory resource exists with 4 strategies | ✅ already done (May 16) |
+| Console shows Memory ARN under Memory section | ✅ live verified |
+| `actorId` strategy documented | ✅ this PR (table above) |
+| Memory retention configured (30d episodic) | ✅ already done (eventExpiryDuration=30) |
+| Programmatic attach script (idempotent) | ✅ this PR |
+| Live `get_harness` shows memory configured | ✅ this PR (output above) |
+| Functional test: agent recalls prior memory | ⏳ requires test invocation post-merge |
+| CloudWatch shows Memory metrics > 0 | ⏳ after invocations |
 
 ## Out of Scope
 
-- BugFixAgent Memory — separate issue **#25**
-- Multi-tenant scoping with Cognito JWT — issue **#N12** (#35)
-- Reusable script update for self-applying once UpdateHarness ships in
-  public SDK — placeholder code in attach_memory.py
+- BugFixAgentHarness Memory — separate issue **#25** (similar pattern,
+  but needs to first CREATE a memory resource since none exists yet)
+- Multi-tenant `actorId` scoping with Cognito JWT — issue **#35**
+- Functional test (agent recalls prior memory across sessions) — needs
+  separate test plan; will be covered in a follow-up issue
+
+## Related discoveries (now in AGENTS.md)
+
+This PR's investigation produced 3 institutional-memory entries that
+landed in [AGENTS.md](../../AGENTS.md) (PR #42):
+
+- §3.1 **Harness vs Runtime** distinction (`UpdateAgentRuntime` is
+  rejected for harness-managed runtimes; use `UpdateHarness`)
+- §3.2 **Field-name gotcha** (`strategyId`, not `memoryStrategyId`)
+- §3.6 **AgentCore SDK structure** (boto3 control plane vs.
+  bedrock-agentcore-sdk-python agent-side SDK)
+
+Future contributors won't need to re-discover these.
