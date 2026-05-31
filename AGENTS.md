@@ -6,6 +6,8 @@
 
 This file follows the convention of AWS's own [bedrock-agentcore-sdk-python](https://github.com/aws/bedrock-agentcore-sdk-python) repo, which also has an AGENTS.md.
 
+The *why* behind this file (the methodology) is documented in [`docs/methodology/agent-onboarding.md`](docs/methodology/agent-onboarding.md). Read that if you want to understand the pattern, or apply it to another repo.
+
 ---
 
 ## 0. What this project is
@@ -190,7 +192,9 @@ Management-plane CRUD (CreateHarness, UpdateMemory, etc.) lives in **boto3** und
 
 ## 4. Repo methodology — read this before opening a PR
 
-Every change in this repo follows the **issue → fix → PR** loop documented in [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md). Brief summary:
+This repo follows the **Agent-Ready Repository Pattern** documented in [`docs/methodology/agent-onboarding.md`](docs/methodology/agent-onboarding.md). The core idea: institutional memory lives in two artifacts (this AGENTS.md + structured GitHub issues) so any AI agent or human contributor can land in the repo cold and act effectively.
+
+In practice every change follows the **issue → fix → PR** loop documented in [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md). Brief summary:
 
 1. Open an **issue** with: Problem / Evidence / Proposed Solution / Acceptance Criteria / Priority / Effort / Out of Scope.
 2. Branch named `<type>/issue-<N>-<short-desc>` (e.g. `feat/issue-24-memory-uitestagent`).
@@ -199,6 +203,15 @@ Every change in this repo follows the **issue → fix → PR** loop documented i
 5. PR description follows the template in `docs/DEVELOPMENT_WORKFLOW.md`.
 6. PRs reference `Closes #N` so GitHub auto-closes the issue on merge.
 7. Each PR is reviewed and merged before starting the next one.
+
+### Issue label convention
+
+| Label | Use for |
+|---|---|
+| `enhancement` / `feature` | You already know what to do. Issue defines acceptance criteria. |
+| `bug` | Something is broken; fix in scope is clear. |
+| `documentation` | Docs-only changes. |
+| `discussion` | You don't yet know the right answer. Use the template in `docs/methodology/agent-onboarding.md` (Context / Working assumptions / Open questions / Repo context). Often spawns one or more feature issues afterwards. |
 
 ---
 
@@ -231,9 +244,10 @@ For boto3, use `sts.get_caller_identity()["Account"]` — never hardcode.
 | Pattern | Example PR / file |
 |---|---|
 | Idempotent setup script (CloudWatch logs delivery) | `agentcore/scripts/setup_observability.py` (PR #39) |
-| Programmatic harness update | (this branch) `agentcore/scripts/attach_memory.py` |
+| Programmatic harness update | `agentcore/scripts/attach_memory.py` |
 | AWS-resource-aware test verification with redaction | `agentcore/scripts/VERIFICATION_issue_28.md` |
 | Methodology dogfooding (each PR follows the workflow it documents) | `docs/DEVELOPMENT_WORKFLOW.md` (PR #3) |
+| Agent-Ready Repo Pattern (this AGENTS.md + methodology doc) | `docs/methodology/agent-onboarding.md` (PR #42) |
 
 ---
 
