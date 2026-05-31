@@ -7,6 +7,8 @@ Production-ready AI agent that replaces human QA testers, built on **Amazon Bedr
 [![Version](https://img.shields.io/badge/version-0.2.0-blue)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)]()
 
+> 🤖 **AI agents working on this repo:** read [`AGENTS.md`](AGENTS.md) first. It captures hard-learned facts about AWS Bedrock AgentCore (SDK versions, API gotchas, harness-vs-runtime distinction) so you don't have to re-discover them.
+
 ## What This Does
 
 An AI agent that navigates web applications like a human QA tester — clicking buttons, filling forms, scrolling, hovering, dragging — then reports PASS/FAIL with evidence.
@@ -121,6 +123,7 @@ agent('Test login at https://the-internet.herokuapp.com/login. Type tomsmith/Sup
 ## Project Structure
 
 ```
+├── AGENTS.md                # ⭐ Read first if you're an AI agent contributing to this repo
 ├── app/ui-test-agent/
 │   ├── main.py              # Agent (Browser + Code Interpreter + Memory)
 │   ├── invoke.py            # Orchestrator (boto3 streaming + inline functions)
@@ -147,6 +150,7 @@ agent('Test login at https://the-internet.herokuapp.com/login. Type tomsmith/Sup
 
 | Document | Description |
 |----------|-------------|
+| [AGENTS.md](AGENTS.md) | ⭐ Quick orientation for AI agents (SDK versions, API gotchas, methodology) — read first |
 | [Best Practices](docs/BEST_PRACTICES.md) | When to use Harness, architecture decisions, 34/34 features utilized |
 | [Architecture](docs/ARCHITECTURE.md) | End-to-end system design, guardrails, self-learning, scaling, cost |
 | [Test Results](docs/TEST_RESULTS.md) | 8 test runs, 32 cases, evidence for every result |
