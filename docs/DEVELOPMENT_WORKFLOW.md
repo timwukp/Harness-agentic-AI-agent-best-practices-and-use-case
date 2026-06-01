@@ -5,7 +5,7 @@
 > **Rule:** Read this before opening your first PR.
 > **Scope:** This is the **practical contract for THIS repo**. For the
 > abstract methodology applicable to any repo (5-step loop, stacked PRs,
-> 11 anti-patterns, 3 templates), see
+> 12 anti-patterns, 3 templates), see
 > [`docs/methodology/change-discipline.md`](methodology/change-discipline.md).
 > For making the repo legible to AI agents, see
 > [`docs/methodology/agent-onboarding.md`](methodology/agent-onboarding.md)
@@ -86,13 +86,27 @@ For each issue:
    - `feat/issue-20-container-deploy`
 2. **Commit** with focused messages. Reference the issue: `fix: ... (#12)`
 3. **Push** the branch
-4. **Open PR** with title that mirrors the issue, body that uses the PR template (below)
-5. PR description must include `Closes #N` so GitHub auto-closes the issue on merge
+4. **Live-test on AWS** for any code touching AWS APIs. ⚠️ **Mandatory.** Required:
+   - Apply the change against your AWS account (the actual API call, not just `--dry-run`)
+   - Re-run the script to confirm idempotency (no API mutations on second run)
+   - Confirm target state via `get_*` / `list_*` / `describe_*` API calls
+   - Capture redacted evidence for the PR description's Verification section
+
+   Doc-only PRs are exempt. If a destructive operation makes live testing
+   too risky on shared infrastructure, document the explicit rationale +
+   alternative verification path in the PR description. Deferring "verification
+   post-merge" is **not acceptable** — that creates the PR #50 / #46 latent-bug
+   pattern. See [`change-discipline.md` §"5-step loop" Step 4](methodology/change-discipline.md#step-4-fix-one-issue-at-a-time)
+   for the full criteria.
+
+5. **Open PR** with title that mirrors the issue, body that uses the PR template (below)
+6. PR description must include `Closes #N` so GitHub auto-closes the issue on merge
 
 **Don't:**
 - Bundle unrelated changes "while you're in there"
 - Open a PR before the issue exists
 - Reuse a branch for a second issue
+- Open a PR for AWS-touching code without live verification (see Step 4 above)
 
 ### Step 5: Review and iterate
 
@@ -168,8 +182,13 @@ One paragraph: what was wrong and what this PR changes.
 
 How a reviewer can confirm the change works:
 
+- [ ] **Live-tested on AWS BEFORE this PR was opened** — apply +
+      idempotent re-run + `get_*`/`list_*` verify path. Doc-only
+      PRs exempt; AWS-touching PRs without live verification must
+      explain why in the PR description (and "verification post-merge"
+      is rejected). See Step 4 above for full criteria.
 - [ ] Local check: `cmd to run`
-- [ ] Screenshot / output
+- [ ] Screenshot / output (redacted per AGENTS.md §5)
 - [ ] Re-run of CI
 
 ## Out of Scope
@@ -240,8 +259,9 @@ Same format as commit messages. The PR title is what shows up in `git log` after
 | Force-pushing during active review | Invalidates reviewer's in-progress comments |
 | Mixing formatting changes with logic changes | Diff becomes unreadable; do formatting in a separate PR |
 | Creating an issue and a PR simultaneously without thinking | Skips triage; you might be solving the wrong problem |
+| **Opening a PR for AWS-touching code without live verification** | **Untested code merges; bugs surface in production. PR #50 deferred verification on the clientToken fix because the script's idempotent short-circuit hid the failing path.** |
 
-For the full 11-row anti-pattern table (adds: stacked-PRs-when-independent,
+For the full 12-row anti-pattern table (adds: stacked-PRs-when-independent,
 ignoring AGENTS.md invariants, re-discovering AGENTS.md §3 facts), see
 [`docs/methodology/change-discipline.md`](methodology/change-discipline.md#anti-patterns-to-avoid).
 
@@ -268,7 +288,7 @@ This repo's first systematic application of this workflow was an audit that unco
   - Reviewer fatigue + risk of merge conflicts between them.
 - ✅ Open issues 1–7 first, then tackle them one PR at a time, sequentially, P0 first.
 
-Each PR was small enough that a reviewer could load the entire context in their head and approve in under 10 minutes.
+Each PR was small enough that a reviewer could load the entire context in their head and approve in under 10 minutes. (These were doc-only PRs — Step 4 live-test was exempt.)
 
 ---
 
@@ -277,11 +297,13 @@ Each PR was small enough that a reviewer could load the entire context in their 
 This workflow is a default, not a law. Reasonable exceptions:
 
 - **Trivial typo:** Fine to fix without an issue. Just commit to a small PR.
-- **Security hotfix:** Don't wait. Open a PR immediately, file the issue afterward for tracking.
+- **Security hotfix:** Don't wait. Open a PR immediately, file the issue afterward for tracking. Live verification may be deferred only if delaying the fix is more dangerous than shipping unverified — document the rationale.
 - **Cohesive feature with unavoidable cross-cutting changes:** A single feature PR can touch multiple files if they form one logical unit. The test is whether a reviewer can hold the whole change in their head.
 - **Renames and mass refactors:** Sometimes one big PR is correct (e.g. renaming a class used in 50 files). Make the PR description loud about what changed.
 
 If you deviate, say so in the PR description and explain why.
+**Step 4 live-test is NOT a deviation candidate** — if it can't be done,
+document the alternative verification path with the same rigor.
 
 ---
 
