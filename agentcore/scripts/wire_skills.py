@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Issue #26: Wire UITestAgentHarness to existing skills/ui-testing/SKILL.md via update_harness.
+Issues #26 + #27: Wire harnesses to their respective SKILL.md files via update_harness.
 
 The `skills` field on UpdateHarness accepts a list of skill source items, each picking ONE of:
   - path: string                     (local container path; needs container or volume mount)
@@ -10,11 +10,16 @@ The `skills` field on UpdateHarness accepts a list of skill source items, each p
 This script uses the GIT source so we don't need #21 (Container) or a separate S3 upload —
 the harness fetches the SKILL.md directly from this repo at session start.
 
+Wires:
+  - UITestAgentHarness → app/ui-test-agent/skills/ui-testing/    (issue #26 / PR #51)
+  - BugFixAgentHarness → app/ui-test-agent/skills/bug-fixing/    (issue #27 / this PR)
+
 Discovery findings (candidate addition to AGENTS.md §3.2 in a follow-up doc PR):
   - skills.member is a structure with mutually-exclusive sources (path / s3 / git)
   - Only `git.url` is required; `git.path` and `git.auth` are optional
   - For public repos no auth needed
   - skills is plain list-of-structure (NO optionalValue wrapper per AGENTS.md §3.2.1)
+  - `git` source has NO branch field — fetches from the repo's default branch (main)
 
 Idempotent: re-run detects matching skills and exits 0 with no API mutations.
 
@@ -65,7 +70,16 @@ DESIRED = {
             }
         ]
     },
-    # BugFixAgentHarness is handled by issue #27 (skill file doesn't exist yet).
+    "BugFixAgentHarness": {
+        "skills": [
+            {
+                "git": {
+                    "url": REPO_URL,
+                    "path": "app/ui-test-agent/skills/bug-fixing",
+                }
+            }
+        ]
+    },
 }
 
 
