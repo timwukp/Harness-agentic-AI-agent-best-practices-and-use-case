@@ -121,7 +121,7 @@ def find_memory(client: Any, prefix: str) -> dict:
 def build_retrieval_config(memory: dict, top_k: int, relevance_score: float) -> dict:
     """Build retrievalConfig dict mapping namespace template → {strategyId, topK, relevanceScore}.
 
-    NOTE: Field name is `strategyId`, NOT `memoryStrategyId`. See AGENTS.md §3.2.
+    NOTE: Field name is `strategyId`, NOT `memoryStrategyId`. See AGENTS.md §3.2.4.
     """
     cfg = {}
     for s in memory.get("strategies", []):
@@ -172,7 +172,10 @@ def attach_memory(
                 }
             }
         },
-        "clientToken": secrets.token_hex(8),
+        # clientToken min validated length is 33 chars; token_hex(20) gives 40 chars (safe).
+        # token_hex(8) was a latent bug — fails ParamValidationError on a fresh attach.
+        # See AGENTS.md §3.2.3 and issue #46.
+        "clientToken": secrets.token_hex(20),
     }
     print("\n=== update_harness payload (redacted) ===")
     import json as _json
