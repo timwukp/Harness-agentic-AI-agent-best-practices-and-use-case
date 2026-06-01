@@ -43,6 +43,10 @@ import sys
 import time
 from typing import Any
 
+# Ensure sibling scripts are importable when running from repo root
+import os as _os
+sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+
 try:
     import boto3
     import botocore
@@ -303,6 +307,21 @@ def main() -> int:
     changed = attach_memory_to_harness(control, memory, harness, args.dry_run)
     if changed and not args.dry_run:
         poll_harness_ready(control, harness["harnessId"])
+    print()
+
+    # Trinity step 3: grant Memory data plane IAM perms to harness's role
+    # (per AGENTS.md §3.9 — Memory wire requires create + update_harness + IAM grant).
+    # Idempotent — no-op if policy already matches; runs even on no-update branches
+    # so a script re-run also verifies IAM hasn't drifted.
+    print(f"=== Step 3 of trinity: grant_memory_access_for_harness ===")
+    from grant_memory_access import grant_memory_access_for_harness
+    grant = grant_memory_access_for_harness(
+        harness["harnessId"],
+        control_client=control,
+        dry_run=args.dry_run,
+        verbose=True,
+    )
+    print(f"  IAM grant action: {grant['action']}")
     print()
 
     if args.dry_run:
