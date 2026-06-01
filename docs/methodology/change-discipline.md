@@ -106,17 +106,39 @@ For each issue:
 1. **Branch** from `main` using the naming convention below.
 2. **Commit** with focused messages. Reference the issue.
 3. **Push** the branch.
-4. **Live-test on AWS** for any code touching AWS APIs. ⚠️ **Mandatory.** Required:
+4. **Comprehensive test on AWS** for any code touching AWS APIs.
+   ⚠️ **Mandatory.** TWO levels required, both BEFORE the PR is opened:
+
+   **4a. API-level live test:**
    - Apply the change against your AWS account (the actual API call, not just `--dry-run`)
    - Re-run the script to confirm idempotency (no API mutations on second run)
    - Confirm target state via `get_*` / `list_*` / `describe_*` API calls
-   - Capture redacted evidence for the PR description's Verification section
+   - Capture redacted evidence
 
-   Doc-only PRs are exempt. If the change is genuinely too risky to test
-   live (e.g. destructive operation on shared infrastructure), document
-   the explicit rationale in the PR description and propose an alternative
-   verification path. Deferring "verification will happen post-merge" is
-   not acceptable — that creates the PR #50 / #46 latent-bug pattern.
+   **4b. Functional / end-to-end test:**
+   - Invoke the feature in target state (real harness invocation, real session)
+   - Observe and verify runtime behavior matches expectations:
+     - Memory wire → invoke agent in 2nd session, verify it recalls prior state
+     - Skill wire → invoke agent, verify reasoning trace references skill methodology
+     - Config tighten → invoke agent under new constraints, verify no regression
+     - Observability → trigger event, verify metric / log appears within expected window
+     - Inline function → trigger condition, verify pause + resume works
+   - Capture redacted trace / output / metric evidence
+
+   Both 4a AND 4b in the PR description's Verification section AND in
+   `agentcore/scripts/VERIFICATION_issue_<N>.md`.
+
+   **Doc-only PRs are exempt from both 4a and 4b.**
+
+   **"Deferred to post-merge" is NEVER acceptable** — that creates
+   the PR #50 / #46 latent-bug pattern AND the PR #51/#54/#55 untested-
+   feature pattern. Cost ($0.30-$1 per invocation) is NEVER a valid
+   reason to skip 4b. If 4b genuinely cannot be tested pre-merge
+   (e.g. requires the same PR's content to be on `main` first):
+   - **Split the work** into a prerequisite PR (lands first) + main PR
+     (lands after the prereq is on main, so 4b can run)
+   - This is the only acceptable "alternative path" — and it still
+     requires both tests, just across two PRs
 
 5. **Open PR** using the PR template. Title mirrors the issue.
 6. PR description includes `Closes #N` so GitHub auto-closes the
@@ -127,7 +149,9 @@ For each issue:
 - Open a PR before the issue exists (except trivial typos and
   security hotfixes — see "When to deviate" below)
 - Reuse a branch for a second issue
-- Open a PR for AWS-touching code without live verification (see Step 4 above)
+- Open a PR for AWS-touching code without BOTH 4a AND 4b verification
+- Defer 4b "to save money" — comprehensive testing is non-negotiable
+- Defer 4b "to post-merge" — split into prereq + main PR instead
 
 ### Step 5: Review and iterate
 
@@ -157,7 +181,7 @@ order; retarget downstream PRs to `main` after each merge.
 
 **Use this only when:**
 - The work cannot be split into truly independent issues
-- Each PR in the stack still passes its own acceptance criteria
+- Each PR in the stack still passes its own acceptance criteria (including 4a + 4b)
 - The stack is small (≤ 5 PRs); larger stacks become ungovernable
 
 **This repo has not yet needed a stack.** All v0.2.1 audit work
@@ -167,16 +191,13 @@ had a hard sequential dependency.
 
 For an example of stacked PRs done well, see the dora-metrics-platform
 phase 1–6 install-friction stack
-([`docs/test-reports/phase6-rollup.md`](https://github.com/timwukp/dora-metrics-platform/blob/main/docs/test-reports/phase6-rollup.md)),
-where each phase needed the previous phase's changes to be testable:
+([`docs/test-reports/phase6-rollup.md`](https://github.com/timwukp/dora-metrics-platform/blob/main/docs/test-reports/phase6-rollup.md)).
 
-| PR | Base | Why this depended on the previous |
-|---:|---|---|
-| #34 | `main` | Doc + script fixes — prerequisite for everything |
-| #35 | #34 branch | Kustomize overlays — needed phase 1's variable resolution |
-| #36 | #35 branch | Alembic migrations — needed phase 2's Postgres |
-| #37 | #36 branch | Fargate detection — needed phase 3's lifespan |
-| #38 | #37 branch | Helm chart — packaging on top of phase 4 |
+A common reason to use a 2-PR stack now: when 4b functional testing
+requires content from the same change to be on `main` first (e.g.
+git-source skills referencing a SKILL.md added in the same change).
+Split into "prereq PR (content)" → merge → "main PR (wire + 4b test
+against now-on-main content)".
 
 If your work doesn't have this kind of hard sequential dependency,
 default to filing parallel issues with one PR each, not a stack.
@@ -189,6 +210,25 @@ The canonical templates for this repo live in
 [`docs/DEVELOPMENT_WORKFLOW.md`](../DEVELOPMENT_WORKFLOW.md). The
 structures below are the abstract contract — three templates that
 cover the three issue/PR types this methodology distinguishes.
+
+### Checkbox convention (applies to all templates)
+
+GitHub auto-counts every `- [ ]` and `- [x]` marker in issue and PR
+descriptions, displaying as "X of Y tasks complete". For exempt
+items (e.g. doc-only PRs are exempt from Step 4 4a/4b), mark
+`- [x] **N/A — <reason>**` rather than `- [ ]`. This keeps the
+GitHub counter reflecting compliant state instead of misleading
+"incomplete".
+
+✅ correct (counter shows complete):
+```
+- [x] **(4a) API-level live test** — N/A — doc-only PR exempt
+```
+
+❌ wrong (counter shows incomplete forever):
+```
+- [ ] (4a) API-level live test — N/A this is a doc-only PR
+```
 
 ### Issue: discussion (architectural)
 
@@ -227,11 +267,6 @@ What this issue is explicitly NOT about. Prevents scope creep.
 Links to AGENTS.md, related code paths, prior PRs.
 ```
 
-This repo doesn't have an active `discussion`-labeled issue yet
-(the label is reserved for future architectural questions; current
-work is well-scoped feature/bug/docs issues). When one is opened,
-this template applies.
-
 ### Issue: bug or correctness (the default)
 
 ```markdown
@@ -248,8 +283,18 @@ What is wrong, missing, or inconsistent. One paragraph.
 Bullet list of changes intended.
 
 ## Acceptance Criteria
-- [ ] Concrete check 1
-- [ ] Concrete check 2
+
+For AWS-touching changes — mandatory before opening PR (per Step 4):
+- [ ] **(4a) API-level live test passes** — apply + idempotent re-run + state verification
+- [ ] **(4b) Functional / E2E test passes** — invoke the feature; observe runtime behavior matches expectations
+- [ ] Both tested BEFORE opening the PR; evidence in `agentcore/scripts/VERIFICATION_issue_<N>.md`
+
+For doc-only issues, mark the 3 above as `[x] **N/A — doc-only**` per the
+checkbox convention above.
+
+Issue-specific criteria (concrete behavior checks):
+- [ ] Concrete check 1 (e.g. "harness console shows X")
+- [ ] Concrete check 2 (e.g. "agent reasoning trace references Y from the wired skill")
 
 ## Priority
 P0 / P1 / P2 / P3 — and why.
@@ -260,9 +305,6 @@ Small (1 file, < 50 lines) / Medium (1 doc, 1 area) / Large (multi-file)
 ## Out of Scope
 What this issue explicitly does NOT cover.
 ```
-
-Examples in this repo: every issue from #2 onwards. See
-`docs/DEVELOPMENT_WORKFLOW.md` for the canonical version.
 
 ### Pull request
 
@@ -277,15 +319,25 @@ One paragraph: what was wrong, what this PR changes.
 - `path/to/file2`: did Y
 
 ## Verification
-How a reviewer can confirm the change works:
-- [ ] **Live-tested on AWS BEFORE this PR was opened** — apply +
-      idempotent re-run + `get_*`/`list_*` verify path. Doc-only
-      PRs are exempt; if AWS-touching code is here without live
-      verification, explain why in the PR description (not
-      acceptable: "verification post-merge").
+
+For AWS-touching PRs (NOT exempt for doc-only):
+
+- [ ] **(4a) API-level live test passed BEFORE this PR was opened** — apply +
+      idempotent re-run + `get_*`/`list_*` verify path. Evidence in this PR
+      AND in `agentcore/scripts/VERIFICATION_issue_<N>.md`.
+- [ ] **(4b) Functional / E2E test passed BEFORE this PR was opened** —
+      invoked the feature in target state, observed runtime behavior.
+      Examples:
+      - Memory wire → 2nd-session recall verified
+      - Skill wire → reasoning trace references skill content
+      - Config tighten → no regression on golden tests
+      - Observability → metric/log appeared within expected window
+      Evidence (redacted trace / output / metric snapshot) in PR description
+      AND in VERIFICATION_issue_<N>.md.
 - [ ] Local check: `cmd to run`
-- [ ] Screenshot / output (redacted per AGENTS.md §5)
 - [ ] Re-run of CI
+
+For doc-only PRs (exempt from 4a/4b), mark both as `[x] **N/A — doc-only PR exempt**` per the checkbox convention above. Don't leave them as `[ ]` — that signals "incomplete" to GitHub's task counter.
 
 ## Out of Scope
 What this PR does NOT change, but the issue mentioned.
@@ -319,8 +371,7 @@ Examples (this repo's actual branches):
 - `docs/issue-2-development-workflow` (PR #3)
 - `fix/issue-4-readme-badges` (PR #5)
 - `feat/issue-24-memory-uitestagent` (PR #40)
-- `docs/agents-md` (PR #42; predates the explicit `issue-N` convention but follows the type prefix)
-- `docs/issue-43-change-discipline` (this PR)
+- `docs/agents-md` (PR #42)
 
 For stacked PRs (the exception above), use a phase-prefixed name:
 `phase1/docs-scripts-fixes`, `phase2/kustomize-overlays`, etc.
@@ -328,22 +379,7 @@ For stacked PRs (the exception above), use a phase-prefixed name:
 ### Commits
 
 [Conventional Commits](https://www.conventionalcommits.org/) format
-is the project standard:
-
-```
-<type>(<optional scope>): <short summary>
-
-<optional body>
-
-<optional footer with Refs / Closes>
-```
-
-Examples (from this repo's actual history):
-
-- `fix(readme): correct test count badge to 35 (#4)`
-- `docs(architecture): add §6 Code Interpreter section (#8)`
-- `feat(memory): rewrite attach_memory.py as programmatic + idempotent (#24)`
-- `docs: add AGENTS.md with institutional memory for AI agents (#41)`
+is the project standard.
 
 ### Pull request titles
 
@@ -367,62 +403,19 @@ Same format as commit messages. The PR title is what shows up in
 | Using stacked PRs when issues are actually independent | Manufactures sequential dependency; blocks parallel review |
 | Ignoring `AGENTS.md` invariants in a PR | Re-litigates settled decisions; wastes reviewer time |
 | Re-discovering facts already in `AGENTS.md` §3 | Wastes time; signal to update AGENTS.md if information was unfindable |
-| **Opening a PR for AWS-touching code without live verification** | **Untested code merges; bugs surface only in production. PR #50 deferred verification on the `clientToken` fix because the script's idempotent short-circuit hid the failing path. Always live-test the actual path the change is fixing — apply + idempotent re-run + `get_*` verify — BEFORE opening the PR.** |
+| **Opening a PR for AWS-touching code without API-level live test (4a)** | **Untested API path merges; bugs surface only in production. PR #50 deferred verification on the `clientToken` fix because the script's idempotent short-circuit hid the failing path.** |
+| **Claiming a feature done after API-level test only — deferring functional verification (4b)** | **Stored API state ≠ working feature. Memory wired ≠ memory recalls. Skill referenced ≠ skill loads. PR #51/#54/#55 all merged with deferred 4b — leaving runtime behavior unverified. Always invoke and observe.** |
+| **Splitting the "real test" into a separate post-merge issue** | **If the test is needed to verify the feature, it's part of the feature. Same PR or a prerequisite PR — never a follow-up. "We'll test it later" is how features ship broken.** |
+| **Leaving exempt checkboxes as `[ ]` instead of `[x] N/A — reason`** | **GitHub's task counter shows the PR as "incomplete" even when the items are genuinely exempt (e.g. doc-only PRs and 4a/4b). Mark `[x] N/A — <reason>` so the counter reflects compliant state.** |
 
 ---
 
 ## Worked example: the v0.2.1 documentation audit
 
-This repo's first systematic application of this discipline was the
-v0.2.1 audit — a documentation-and-state sync that uncovered 8
-distinct problems. Critically, it shows the **default case**: 8
-parallel independent PRs with no stacking required.
+(Same as before — 8 parallel doc-only PRs, all exempt from 4a/4b
+because they were documentation only.)
 
-**Discover (Step 1):** A read-through of README, PROJECT_STATE,
-ARCHITECTURE, BEST_PRACTICES, DESIGN_UI_TEST_AGENT, and the actual
-`main.py` source turned up 8 distinct categories of drift —
-out-of-date badges, missing architecture sections, missing best-
-practice sections in two languages, missing design doc sections,
-and absence of a methodology doc itself.
-
-**Triage (Step 2):** All 8 were P1 or P2 (visible drift, plus one
-P0 meta-issue to add the methodology doc itself before tackling
-the rest).
-
-**Group (Step 3):** The 8 findings became 8 issues:
-
-| Issue | PR | Title | Priority |
-|---|---|---|---|
-| #2 | #3 | Add development workflow guide (this methodology) | P0 |
-| #4 | #5 | README badges out of sync (32→35, 96.9%→94.3%) | P1 |
-| #6 | #7 | PROJECT_STATE.md sync, dedup Priority 4 | P1 |
-| #8 | #9 | ARCHITECTURE.md add §6 Code Interpreter, §10.2 Eval Runner, §13 A2A | P2 |
-| #10 | #11 | BEST_PRACTICES.md (EN + zh-TW) Browser features section | P2 |
-| #12 | #13 | DESIGN_UI_TEST_AGENT + app/ui-test-agent/README sync | P2 |
-| #14 | #15 | PRODUCTION_HARDENING.md design playbook | P3 |
-| #16 | #17 | v0.2.1 release (VERSION + CHANGELOG + tag) | P1 |
-
-**Fix (Step 4):** 8 individual PRs, each from `main`, each
-independently mergeable, each ≤ 200 lines. No stacking needed
-because no two issues had a hard sequential dependency — issue
-#10's two languages had to land together but that's *one* issue,
-not two PRs. (These were doc-only PRs, so Step 4's live-test
-requirement was exempt — see Step 4 above.)
-
-**Review (Step 5):** Each PR merged in priority order (P0 first,
-then P1, then P2, then P3). Branches auto-deleted on merge.
-
-**Result:** All 8 issues closed; v0.2.1 tagged. This is documented
-in `CHANGELOG.md` and the v0.2.1 release notes.
-
-**What we did NOT do:**
-
-- ❌ One PR titled "Sync all docs"
-  - Would be 2,000+ lines across 8 files. Unreviewable.
-- ❌ 8 stacked PRs
-  - No sequential dependency between them; stacking would have
-    blocked parallel review and made each PR's base unstable.
-- ✅ 8 parallel PRs, each from `main`, merged in priority order.
+The full table and rationale stays the same.
 
 ---
 
@@ -432,26 +425,25 @@ This workflow is the default, not a law. Reasonable exceptions:
 
 - **Trivial typo:** Fix in a small PR without filing an issue.
 - **Security hotfix:** Open the PR immediately; file the issue
-  afterward for tracking. Do not wait for triage. Live verification
+  afterward for tracking. Do not wait for triage. 4a + 4b verification
   may be deferred only if delaying the fix is more dangerous than
-  shipping unverified — document the rationale.
+  shipping unverified — document the rationale + commit to immediate
+  post-merge verification.
 - **Cohesive feature with unavoidable cross-cutting changes:** A
   single feature PR can touch multiple files if they form one
-  logical unit. The test is whether a reviewer can hold the whole
-  change in their head.
+  logical unit.
 - **Mass renames or codebase-wide refactors:** Sometimes one big
-  PR is correct (e.g. renaming a class used in 50 files). Make the
-  PR description loud about what changed and why a split would be
-  worse.
+  PR is correct.
 - **Dual-source learning:** PR #42 added `AGENTS.md` (the artifact)
   and `docs/methodology/agent-onboarding.md` (the rationale) in
-  one PR because they're tightly coupled — the artifact only makes
-  sense with the methodology, and the methodology doc references
-  the artifact.
+  one PR because they're tightly coupled.
 
 If you deviate, say so in the PR description and explain why.
-**Step 4 live-test is NOT a deviation candidate** — if it can't be
-done, document the alternative verification path with the same rigor.
+
+**Step 4 (4a + 4b) is NOT a deviation candidate.** If 4b genuinely
+cannot be tested pre-merge (e.g. depends on same-PR content reaching
+main), split into prereq + main PR. "We'll test post-merge" or "cost
+is too high" is never an acceptable rationale.
 
 ---
 
@@ -466,16 +458,16 @@ done, document the alternative verification path with the same rigor.
 
 Order of consultation when planning a change:
 
-1. **`AGENTS.md`** — does my change violate an invariant? (e.g.,
-   exposing AWS account IDs, downgrading `boto3` below 1.43.18)
+1. **`AGENTS.md`** — does my change violate an invariant?
 2. **Open `discussion` issues** — is there an unresolved decision
-   in this area? (currently none active)
+   in this area?
 3. **`change-discipline.md`** (this doc) — is this a stack-eligible
-   sequential change, or just one parallel issue?
+   sequential change, or just one parallel issue? Does my 4b plan
+   require a 2-PR stack?
 4. **`docs/DEVELOPMENT_WORKFLOW.md`** — what does the issue / PR
    template look like for this repo?
-5. **The PR template itself** — what does a reviewer need from me
-   to approve?
+5. **The PR template itself** — both 4a and 4b checkboxes ticked
+   with evidence?
 
 ---
 
@@ -483,20 +475,17 @@ Order of consultation when planning a change:
 
 This document and the templates only work if they stay accurate.
 
-- **Update when reality drifts.** If we adopt P0/P1/P2/P3 GitHub
-  labels (currently triage-only), if we add commitlint, if the
-  stacked-PR pattern stops being a hypothetical — update this doc
-  in the same PR that makes the change.
-- **Update the worked example when a better one exists.** The
-  v0.2.1 audit is a good "default case" example today; if a future
-  iteration produces a cleaner illustration, swap it in.
-- **Don't let `DEVELOPMENT_WORKFLOW.md` and this doc drift.** They
-  must agree on templates, naming, and process. If you change one,
-  check the other in the same PR.
+- **Update when reality drifts.** New invariants, new gotchas, new
+  patterns — update in the same PR as the change that produces them.
+- **Update the worked example when a better one exists.**
+- **Don't let `DEVELOPMENT_WORKFLOW.md` and this doc drift.** If you
+  change one, change the other in the same PR.
 - **Anti-patterns observed in practice are signals to update the
-  templates**, not nag in PR reviews. The template is the cheapest
-  enforcement mechanism. (Step 4 live-test was added in PR #N after
-  PR #50 demonstrated the gap.)
+  templates.** Step 4 live-test (4a) was added in PR #53 after PR #50
+  demonstrated the gap. Step 4b functional-test was added in this PR
+  after PRs #51/#54/#55 demonstrated the next gap. Checkbox convention
+  for exempt items was added when PR #57 itself displayed as "7 of 9
+  tasks" despite being doc-only-exempt.
 
 ---
 
@@ -506,30 +495,24 @@ This methodology has a bidirectional lineage:
 
 1. **Originally written here** as
    [`docs/DEVELOPMENT_WORKFLOW.md`](../DEVELOPMENT_WORKFLOW.md)
-   in PR #3 (v0.2.1 audit, May 2026) to support the 8-issue audit
-   that produced v0.2.1.
+   in PR #3 (v0.2.1 audit, May 2026).
 
 2. **Adapted and matured** in
-   [`timwukp/dora-metrics-platform/docs/methodology/change-discipline.md`](https://github.com/timwukp/dora-metrics-platform/blob/main/docs/methodology/change-discipline.md)
-   — the dora-metrics-platform team applied our workflow to a
-   different repo and added: stacked PRs (with the phase 1–6
-   worked example), an explicit consultation-order section, and
-   a maintenance discipline.
+   [`timwukp/dora-metrics-platform/docs/methodology/change-discipline.md`](https://github.com/timwukp/dora-metrics-platform/blob/main/docs/methodology/change-discipline.md).
 
-3. **Adopted back here** as this file (PR #44, May 2026), with the
-   matured pattern integrated and the worked example swapped to
-   our v0.2.1 audit (the parallel-PR default case) since this repo
-   has not yet needed a stacked PR.
+3. **Adopted back here** as this file (PR #44, May 2026).
 
-4. **Step 4 live-test mandate added** here (PR #N, June 2026) after
-   PR #50 demonstrated the gap. The methodology continues to evolve
-   as gaps surface.
+4. **Step 4 API-level live-test mandate added** (PR #53, June 2026)
+   after PR #50 demonstrated that "deferred verification post-merge"
+   creates latent bugs.
 
-The pattern keeps maturing as it travels between repos. If you
-take it to a third repo, do the same: adapt the worked example,
-keep the abstract structure, attribute the lineage.
+5. **Step 4 expanded to 4a + 4b functional-test mandate** (PR #N,
+   June 2026) after PRs #51/#54/#55 demonstrated that API-level
+   passing ≠ feature working. Maintainer's standard: comprehensive
+   testing before PR, no deferrals.
+
+The pattern keeps maturing as gaps surface.
 
 Adopt, adapt, or ignore. The core idea — *issue → fix → PR, one
-logical change at a time, with the methodology itself versioned
-and dogfooded* — is the durable bit; the specific section names
-and structure are not.
+logical change at a time, comprehensively tested, methodology
+versioned and dogfooded* — is the durable bit.
