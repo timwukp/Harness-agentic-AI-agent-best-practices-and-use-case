@@ -5,7 +5,7 @@
 > **Rule:** Read this before opening your first PR.
 > **Scope:** This is the **practical contract for THIS repo**. For the
 > abstract methodology applicable to any repo (5-step loop, stacked PRs,
-> 12 anti-patterns, 3 templates), see
+> 14 anti-patterns, 3 templates), see
 > [`docs/methodology/change-discipline.md`](methodology/change-discipline.md).
 > For making the repo legible to AI agents, see
 > [`docs/methodology/agent-onboarding.md`](methodology/agent-onboarding.md)
@@ -86,18 +86,43 @@ For each issue:
    - `feat/issue-20-container-deploy`
 2. **Commit** with focused messages. Reference the issue: `fix: ... (#12)`
 3. **Push** the branch
-4. **Live-test on AWS** for any code touching AWS APIs. ⚠️ **Mandatory.** Required:
+4. **Comprehensive test on AWS** for any code touching AWS APIs.
+   ⚠️ **Mandatory.** TWO levels required, both BEFORE the PR is opened:
+
+   **4a. API-level live test:**
    - Apply the change against your AWS account (the actual API call, not just `--dry-run`)
    - Re-run the script to confirm idempotency (no API mutations on second run)
    - Confirm target state via `get_*` / `list_*` / `describe_*` API calls
-   - Capture redacted evidence for the PR description's Verification section
+   - Capture redacted evidence
 
-   Doc-only PRs are exempt. If a destructive operation makes live testing
-   too risky on shared infrastructure, document the explicit rationale +
-   alternative verification path in the PR description. Deferring "verification
-   post-merge" is **not acceptable** — that creates the PR #50 / #46 latent-bug
-   pattern. See [`change-discipline.md` §"5-step loop" Step 4](methodology/change-discipline.md#step-4-fix-one-issue-at-a-time)
-   for the full criteria.
+   **4b. Functional / end-to-end test:**
+   - Invoke the feature in target state (real harness invocation, real session)
+   - Observe and verify runtime behavior matches expectations:
+     - Memory wire → invoke agent in 2nd session, verify it recalls prior state
+     - Skill wire → invoke agent, verify reasoning trace references skill methodology
+     - Config tighten → invoke agent under new constraints, verify no regression
+     - Observability → trigger event, verify metric / log appears within expected window
+     - Inline function → trigger condition, verify pause + resume works
+   - Capture redacted trace / output / metric evidence
+
+   Both 4a AND 4b in the PR description's Verification section AND in
+   `agentcore/scripts/VERIFICATION_issue_<N>.md`.
+
+   **Doc-only PRs are exempt from both 4a and 4b.**
+
+   **"Deferred to post-merge" is NEVER acceptable** — that creates the
+   PR #50 (4a gap) and PR #51/#54/#55 (4b gap) latent-feature pattern.
+   Cost ($0.30-$1 per invocation) is NEVER a valid reason to skip 4b.
+
+   If 4b genuinely cannot be tested pre-merge (e.g. requires the same PR's
+   content to be on `main` first):
+   - **Split into prerequisite PR** (lands first) **+ main PR** (lands
+     after the prereq is on main, so 4b can run)
+   - This is the only acceptable "alternative path" — and it still
+     requires both tests, just across two PRs
+
+   See [`change-discipline.md` §"5-step loop" Step 4](methodology/change-discipline.md#step-4-fix-one-issue-at-a-time)
+   for full criteria.
 
 5. **Open PR** with title that mirrors the issue, body that uses the PR template (below)
 6. PR description must include `Closes #N` so GitHub auto-closes the issue on merge
@@ -106,7 +131,9 @@ For each issue:
 - Bundle unrelated changes "while you're in there"
 - Open a PR before the issue exists
 - Reuse a branch for a second issue
-- Open a PR for AWS-touching code without live verification (see Step 4 above)
+- Open a PR for AWS-touching code without BOTH 4a AND 4b verification
+- Defer 4b "to save money" — comprehensive testing is non-negotiable
+- Defer 4b "to post-merge" — split into prereq + main PR instead
 
 ### Step 5: Review and iterate
 
@@ -141,6 +168,12 @@ Bullet list of changes you intend to make.
 
 ## Acceptance Criteria
 
+For AWS-touching changes — mandatory before opening PR (per Step 4):
+- [ ] **(4a) API-level live test passes** — apply + idempotent re-run + state verification
+- [ ] **(4b) Functional / E2E test passes** — invoke the feature; observe runtime behavior matches expectations
+- [ ] Both tested BEFORE opening the PR; evidence in `agentcore/scripts/VERIFICATION_issue_<N>.md`
+
+Issue-specific criteria (concrete behavior checks):
 - [ ] Concrete check 1
 - [ ] Concrete check 2
 - [ ] Concrete check 3
@@ -180,16 +213,24 @@ One paragraph: what was wrong and what this PR changes.
 
 ## Verification
 
-How a reviewer can confirm the change works:
+For AWS-touching PRs (NOT exempt for doc-only):
 
-- [ ] **Live-tested on AWS BEFORE this PR was opened** — apply +
-      idempotent re-run + `get_*`/`list_*` verify path. Doc-only
-      PRs exempt; AWS-touching PRs without live verification must
-      explain why in the PR description (and "verification post-merge"
-      is rejected). See Step 4 above for full criteria.
+- [ ] **(4a) API-level live test passed BEFORE this PR was opened** — apply +
+      idempotent re-run + `get_*`/`list_*` verify path. Evidence in this PR
+      AND in `agentcore/scripts/VERIFICATION_issue_<N>.md`.
+- [ ] **(4b) Functional / E2E test passed BEFORE this PR was opened** —
+      invoked the feature in target state, observed runtime behavior.
+      Examples:
+      - Memory wire → 2nd-session recall verified
+      - Skill wire → reasoning trace references skill content
+      - Config tighten → no regression on golden tests
+      - Observability → metric/log appeared within expected window
+      Evidence (redacted trace / output / metric snapshot) in PR description
+      AND in VERIFICATION_issue_<N>.md.
 - [ ] Local check: `cmd to run`
-- [ ] Screenshot / output (redacted per AGENTS.md §5)
 - [ ] Re-run of CI
+
+Doc-only PRs are exempt from 4a and 4b — explain in PR description.
 
 ## Out of Scope
 
@@ -259,9 +300,11 @@ Same format as commit messages. The PR title is what shows up in `git log` after
 | Force-pushing during active review | Invalidates reviewer's in-progress comments |
 | Mixing formatting changes with logic changes | Diff becomes unreadable; do formatting in a separate PR |
 | Creating an issue and a PR simultaneously without thinking | Skips triage; you might be solving the wrong problem |
-| **Opening a PR for AWS-touching code without live verification** | **Untested code merges; bugs surface in production. PR #50 deferred verification on the clientToken fix because the script's idempotent short-circuit hid the failing path.** |
+| **Opening a PR for AWS-touching code without API-level live test (4a)** | **Untested API path merges; bugs surface only in production. PR #50 case-in-point.** |
+| **Claiming a feature done after API-level test only — deferring functional verification (4b)** | **Stored API state ≠ working feature. PRs #51/#54/#55 all merged with deferred 4b — leaving runtime behavior unverified. Always invoke and observe.** |
+| **Splitting the "real test" into a separate post-merge issue** | **If the test is needed to verify the feature, it's part of the feature. Same PR or a prerequisite PR — never a follow-up.** |
 
-For the full 12-row anti-pattern table (adds: stacked-PRs-when-independent,
+For the full 14-row anti-pattern table (adds: stacked-PRs-when-independent,
 ignoring AGENTS.md invariants, re-discovering AGENTS.md §3 facts), see
 [`docs/methodology/change-discipline.md`](methodology/change-discipline.md#anti-patterns-to-avoid).
 
@@ -283,12 +326,10 @@ This repo's first systematic application of this workflow was an audit that unco
 
 **What we did NOT do:**
 - ❌ Open one PR titled "Sync all docs and add hardening plan"
-  - That PR would be 2,000+ lines across 8 files. Unreviewable.
 - ❌ Open seven PRs in parallel
-  - Reviewer fatigue + risk of merge conflicts between them.
 - ✅ Open issues 1–7 first, then tackle them one PR at a time, sequentially, P0 first.
 
-Each PR was small enough that a reviewer could load the entire context in their head and approve in under 10 minutes. (These were doc-only PRs — Step 4 live-test was exempt.)
+These were doc-only PRs — Step 4 (4a + 4b) was exempt.
 
 ---
 
@@ -297,13 +338,16 @@ Each PR was small enough that a reviewer could load the entire context in their 
 This workflow is a default, not a law. Reasonable exceptions:
 
 - **Trivial typo:** Fine to fix without an issue. Just commit to a small PR.
-- **Security hotfix:** Don't wait. Open a PR immediately, file the issue afterward for tracking. Live verification may be deferred only if delaying the fix is more dangerous than shipping unverified — document the rationale.
-- **Cohesive feature with unavoidable cross-cutting changes:** A single feature PR can touch multiple files if they form one logical unit. The test is whether a reviewer can hold the whole change in their head.
-- **Renames and mass refactors:** Sometimes one big PR is correct (e.g. renaming a class used in 50 files). Make the PR description loud about what changed.
+- **Security hotfix:** Don't wait. Open a PR immediately, file the issue afterward for tracking. 4a + 4b verification may be deferred only if delaying the fix is more dangerous than shipping unverified — document the rationale + commit to immediate post-merge verification.
+- **Cohesive feature with unavoidable cross-cutting changes:** A single feature PR can touch multiple files if they form one logical unit.
+- **Renames and mass refactors:** Sometimes one big PR is correct.
 
 If you deviate, say so in the PR description and explain why.
-**Step 4 live-test is NOT a deviation candidate** — if it can't be done,
-document the alternative verification path with the same rigor.
+
+**Step 4 (4a + 4b) is NOT a deviation candidate.** If 4b genuinely cannot be
+tested pre-merge (e.g. depends on same-PR content reaching main), split
+into prerequisite PR + main PR. "We'll test post-merge" or "cost is too
+high" is never an acceptable rationale.
 
 ---
 
@@ -327,4 +371,4 @@ document the alternative verification path with the same rigor.
 
 ---
 
-*This document is itself an example of the workflow it describes. See its issue and PR for the application of this process to its own creation.*
+*This document is itself an example of the workflow it describes.*
