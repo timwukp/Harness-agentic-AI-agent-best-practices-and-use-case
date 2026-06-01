@@ -86,7 +86,7 @@ aws --version                                          # expect ≥ 2.34.57
 
 ## 3. Hard-learned facts (gotchas to skip)
 
-These cost real debugging time during issues #28 (observability), #24 (memory attachment), and #29 (harness config tightening). Know them up front:
+These cost real debugging time during issues #28 (observability), #24 (memory attachment), #29 (harness config tightening), #58 (SKILL.md format), #60 (Memory IAM gap). Know them up front:
 
 ### 3.1 Harness vs Runtime — the same thing under the hood, but two APIs
 
@@ -205,6 +205,35 @@ memory = {
 - ✅ `strategyId`
 - ❌ `memoryStrategyId` (you'd guess this from the API ref but it's wrong; the hint comes from validation errors)
 
+#### 3.2.5 `skills` member is a UNION of three source types — `git` source has NO branch field
+
+`UpdateHarness.skills` accepts a list of skill objects. Each skill object has exactly ONE source type from a 3-way UNION:
+
+```python
+# Option A: path source (local file in container; useful for #21 Container mode)
+{"path": {"path": "/skills/ui-testing"}}
+
+# Option B: s3 source (object in S3 bucket)
+{"s3": {"bucket": "my-bucket", "prefix": "skills/ui-testing", "versionId": "..."}}
+
+# Option C: git source (path inside a GitHub repo at default branch)
+{"git": {
+    "url": "https://github.com/owner/repo",
+    "path": "app/ui-test-agent/skills/ui-testing"
+    # NO "branch" field — fetches from the repo's default branch
+    # NO "auth" needed for public repos; private repos use Token Vault
+}}
+```
+
+**Critical limitation of git source:** there is **no `branch` field** on `git` source. AgentCore fetches from the repo's **default branch** (`main`) at session start. This has two implications:
+
+- 4b functional verification of a git-source skill is **impossible pre-merge** for a SKILL.md that lives only on a feature branch — it's the legitimate "alternative verification path" per change-discipline.md "When to deviate" (PR #55 / #59 set the precedent).
+- Forking a private branch for testing won't work; the SKILL.md must be on the default branch first.
+
+For latency-sensitive deployments (Container mode, #21), prefer `path` source so the skill ships with the container image at build time.
+
+Verified via schema introspection (§7.1) in PR #51 / #55.
+
 ### 3.3 CloudWatch Logs Delivery for AgentCore
 
 Three valid `logType` values:
@@ -263,14 +292,101 @@ Management-plane CRUD (CreateHarness, UpdateMemory, etc.) lives in **boto3** und
 ### 3.7 Memory event flow
 
 - AgentCore **Memory** is a separate resource from a Harness.
-- Each Memory has multiple **strategies** (semantic, episodic, summarization, user_preference, custom).
-- A Memory is attached to a Harness via `update_harness(memory={...})` (or set on creation).
+- Each Memory has multiple **strategies** (semantic, episodic, summarization, user_preference, custom). See §3.10 for the UNION shape.
+- A Memory is attached to a Harness via `update_harness(memory={...})` (or set on creation). **See §3.9 — there is a required IAM step that's separate from this attachment.**
 - Memory namespace templates use `{actorId}` and `{sessionId}` placeholders. The agent invocation determines the actual values.
 - This project's convention for `actorId`:
   - `ci-pipeline` for CI runs (shared memory across tests)
   - `dev-{username}` for ad-hoc dev runs
   - `repo-{owner}-{name}` for Bug-Fix Agent (per-repo scoping; see PR #54)
   - `tenant-{tenantId}` for future multi-tenant (tracked in #36)
+
+### 3.8 SKILL.md must have YAML frontmatter (`name` + `description`)
+
+A `SKILL.md` file referenced by `skills[].git.path`, `skills[].path.path`, or `skills[].s3.prefix` MUST start with a YAML frontmatter block:
+
+````markdown
+---
+name: ui-testing
+description: Methodology and rubrics for UI testing
+---
+
+# UI Testing Skill
+... rest of skill content ...
+````
+
+Without the frontmatter, `InvokeHarness` fails at session start with:
+
+```
+runtimeClientError: SKILL.md in .agents/skills/git/<hash>/<repo-path>/skills/<skill-name>
+has no YAML frontmatter (must start with ---)
+```
+
+Required keys:
+- `name` — identifier the agent uses to invoke the skill (lowercase, no spaces). The agent calls `skills` tool with `{"skill_name": "<name>"}`.
+- `description` — one-line description of what the skill does
+
+This requirement is undocumented in the official AgentCore guide. Both PR #51 (UI Test) and PR #55 (Bug-Fix) initially shipped without it; both surfaced as production bugs caught by PR #57's mandatory 4b functional test (issues #58, #60). Fixed in PR #59 / PR #55 commit `27ed0be0`.
+
+Always validate this requirement before opening a PR that ships a new SKILL.md.
+
+### 3.9 Memory wiring requires THREE coordinated steps (not two)
+
+A working Memory wiring is NOT just "create the Memory + tell the harness about it". The harness's IAM execution role also needs explicit Memory data plane permissions on the new Memory ARN. Without step 3, every harness invocation fails with `AccessDeniedException: ListEvents` at session start.
+
+| # | Step | Tool / API |
+|---|---|---|
+| 1 | Create the Memory resource | `bedrock-agentcore-control:CreateMemory` (e.g. `create_bugfix_memory.py`) |
+| 2 | Reference it from the harness | `bedrock-agentcore-control:UpdateHarness(memory={...})` (e.g. `attach_memory.py`) |
+| 3 | **Grant the harness's executionRoleArn perms on the Memory ARN** | **`iam:PutRolePolicy` (e.g. `grant_memory_access.py`)** |
+
+Required permissions in step 3:
+
+| Action set | When needed | Example actions |
+|---|---|---|
+| Memory events (read + write) | Every session start (auto by runtime) | `ListEvents`, `CreateEvent`, `GetEvent`, `ListSessions`, `ListActors` |
+| Memory record retrieval | Every session start with `retrievalConfig` | `ListMemoryRecords`, `RetrieveMemoryRecords` (scoped by `bedrock-agentcore:namespace` Condition) |
+
+The retrieval Condition's `bedrock-agentcore:namespace` IAM key must match the namespace **patterns** in `retrievalConfig`. Note the conversion:
+
+| Where | Format | Example |
+|---|---|---|
+| `Memory.retrievalConfig` keys | `{placeholder}` syntax | `/fix-history/{actorId}/{sessionId}` |
+| IAM Condition `StringLike` value | glob `*` pattern | `/fix-history/*/*` |
+
+Convert via regex `\{[^}]+\}` → `*`.
+
+**Convention used in this repo:** inline policy named `<HarnessName>MemoryAccess` per Memory wire. The `grant_memory_access.py` script (PR #61) is idempotent and discovers harnesses with Memory wired automatically.
+
+This was discovered the hard way: PR #54 wired BugFix Memory but skipped step 3; PR #57's 4b mandate caught it on the first invocation; fixed in PR #61.
+
+### 3.10 `Memory.memoryStrategies` member is a UNION; episodic needs `reflectionConfiguration`
+
+Each item in `CreateMemory.memoryStrategies` (and the same for the strategies-modifications shape on `UpdateMemory`) is a UNION over 5 strategy types — exactly ONE key per item:
+
+| Key | Purpose | Required sub-fields |
+|---|---|---|
+| `semanticMemoryStrategy` | Vector-similar past content | `name`, `namespaces`, `description` |
+| `summaryMemoryStrategy` | Compressed conversation summaries | `name`, `namespaces`, `description` |
+| `userPreferenceMemoryStrategy` | Per-actor preferences (auto-extracted) | `name`, `namespaces`, `description` |
+| `episodicMemoryStrategy` | Past sessions as discrete episodes | `name`, `namespaces`, `description`, **`reflectionConfiguration`** |
+| `customMemoryStrategy` | Bring-your-own (advanced) | `name`, `namespaces`, `description`, `customConfiguration` |
+
+Caveats discovered in PR #54:
+
+1. **`namespaces`** is a list of **strings** with `{actorId}` / `{sessionId}` placeholders — e.g. `["/fix-patterns/{actorId}"]`. These translate to glob patterns in IAM Condition (see §3.9).
+
+2. **`episodicMemoryStrategy` requires `reflectionConfiguration`**. Validation rejects an episodic strategy without it. Minimum form:
+
+   ```python
+   {"reflectionConfiguration": {"reflectionPrefix": "Episode summary:"}}
+   ```
+
+   This prefix is the marker the strategy uses to identify the start of each episode in the event stream.
+
+3. Strategy modifications on `UpdateMemory` use `addMemoryStrategies` / `modifyMemoryStrategies` / `deleteMemoryStrategies` — separate fields, not direct list assignment.
+
+Adding new strategies has cost implications: each strategy processes events in background to extract long-term records, consuming compute resources.
 
 ---
 
@@ -350,10 +466,11 @@ For boto3, use `sts.get_caller_identity()["Account"]` — never hardcode.
 | Programmatic harness update (allowedTools / maxTokens / tags) | `agentcore/scripts/tighten_harness_config.py` (PR #47) |
 | Programmatic harness update (skills via git source) | `agentcore/scripts/wire_skills.py` (PR #51, extended in PR #55) |
 | Two-phase create + attach (memory) | `agentcore/scripts/create_bugfix_memory.py` (PR #54) |
+| **IAM grant for Memory data plane (post-Memory-wire)** | **`agentcore/scripts/grant_memory_access.py` (PR #61)** |
 | AWS-resource-aware test verification with redaction | `agentcore/scripts/VERIFICATION_issue_28.md` |
 | Methodology dogfooding | `docs/DEVELOPMENT_WORKFLOW.md` (PR #3) |
 | Agent-Ready Repo Pattern | `docs/methodology/agent-onboarding.md` (PR #42) |
-| Change-discipline methodology | `docs/methodology/change-discipline.md` (PR #44, tightened PR #53, tightened PR #56) |
+| Change-discipline methodology | `docs/methodology/change-discipline.md` (PR #44, tightened PR #53, PR #57) |
 
 ---
 
@@ -401,6 +518,40 @@ If the public boto3 SDK seems to lack an operation you need:
 4. **Check the [bedrock-agentcore-sdk-python](https://github.com/aws/bedrock-agentcore-sdk-python) source** — even if the operation isn't there, allowlisted method names hint at API shapes.
 5. **Don't conclude "console-only" without verifying SDK version.**
 
+### 7.4 "Memory wired but invocation fails 401 / AccessDenied"
+
+Symptom:
+
+```
+EventStreamError: ...AccessDeniedException...is not authorized to perform:
+  bedrock-agentcore:ListEvents on resource: ...:memory/...
+```
+
+Cause: harness execution role missing Memory data plane perms on the Memory ARN — see §3.9 (Memory wiring trinity, step 3 was skipped).
+
+Fix:
+
+```bash
+/path/to/newer-boto3/python3 agentcore/scripts/grant_memory_access.py
+```
+
+The script discovers harnesses with Memory wired and ensures each role has the canonical `<HarnessName>MemoryAccess` inline policy. Idempotent — safe to re-run.
+
+If the policy already exists but invocation still fails, check the `bedrock-agentcore:namespace` Condition allows the namespaces in your harness's `retrievalConfig` (see §3.9 namespace conversion rule).
+
+### 7.5 SKILL.md not loading at session start
+
+Symptom:
+
+```
+runtimeClientError: SKILL.md in .agents/skills/git/<hash>/.../<skill-name>
+has no YAML frontmatter (must start with ---)
+```
+
+Cause: missing or malformed YAML frontmatter — see §3.8.
+
+Fix: prepend the file with the frontmatter block. For git-source skills, the fix must merge to default branch before it takes effect (see §3.2.5 — there's no branch field on git source).
+
 ---
 
 ## 8. Project state (auto-stale; check git for current)
@@ -408,7 +559,7 @@ If the public boto3 SDK seems to lack an operation you need:
 - `PROJECT_STATE.md` — persistent project state, updated periodically
 - `CHANGELOG.md` — Keep-a-Changelog versioned history
 - Last major audit: **v0.2.1** (2026-05-30) — sync of all docs with code reality
-- v0.2.2 in progress: Harness configuration improvements + comprehensive testing methodology
+- v0.2.2 in progress: Harness configuration (Memory + skills + tighten + IAM) + comprehensive testing methodology
 
 ---
 
