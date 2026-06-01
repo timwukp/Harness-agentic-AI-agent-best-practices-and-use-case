@@ -211,6 +211,25 @@ The canonical templates for this repo live in
 structures below are the abstract contract — three templates that
 cover the three issue/PR types this methodology distinguishes.
 
+### Checkbox convention (applies to all templates)
+
+GitHub auto-counts every `- [ ]` and `- [x]` marker in issue and PR
+descriptions, displaying as "X of Y tasks complete". For exempt
+items (e.g. doc-only PRs are exempt from Step 4 4a/4b), mark
+`- [x] **N/A — <reason>**` rather than `- [ ]`. This keeps the
+GitHub counter reflecting compliant state instead of misleading
+"incomplete".
+
+✅ correct (counter shows complete):
+```
+- [x] **(4a) API-level live test** — N/A — doc-only PR exempt
+```
+
+❌ wrong (counter shows incomplete forever):
+```
+- [ ] (4a) API-level live test — N/A this is a doc-only PR
+```
+
 ### Issue: discussion (architectural)
 
 For decisions where the path isn't yet clear. Use the GitHub
@@ -270,6 +289,9 @@ For AWS-touching changes — mandatory before opening PR (per Step 4):
 - [ ] **(4b) Functional / E2E test passes** — invoke the feature; observe runtime behavior matches expectations
 - [ ] Both tested BEFORE opening the PR; evidence in `agentcore/scripts/VERIFICATION_issue_<N>.md`
 
+For doc-only issues, mark the 3 above as `[x] **N/A — doc-only**` per the
+checkbox convention above.
+
 Issue-specific criteria (concrete behavior checks):
 - [ ] Concrete check 1 (e.g. "harness console shows X")
 - [ ] Concrete check 2 (e.g. "agent reasoning trace references Y from the wired skill")
@@ -297,6 +319,7 @@ One paragraph: what was wrong, what this PR changes.
 - `path/to/file2`: did Y
 
 ## Verification
+
 For AWS-touching PRs (NOT exempt for doc-only):
 
 - [ ] **(4a) API-level live test passed BEFORE this PR was opened** — apply +
@@ -314,7 +337,7 @@ For AWS-touching PRs (NOT exempt for doc-only):
 - [ ] Local check: `cmd to run`
 - [ ] Re-run of CI
 
-Doc-only PRs are exempt from 4a and 4b — explain in PR description.
+For doc-only PRs (exempt from 4a/4b), mark both as `[x] **N/A — doc-only PR exempt**` per the checkbox convention above. Don't leave them as `[ ]` — that signals "incomplete" to GitHub's task counter.
 
 ## Out of Scope
 What this PR does NOT change, but the issue mentioned.
@@ -383,6 +406,7 @@ Same format as commit messages. The PR title is what shows up in
 | **Opening a PR for AWS-touching code without API-level live test (4a)** | **Untested API path merges; bugs surface only in production. PR #50 deferred verification on the `clientToken` fix because the script's idempotent short-circuit hid the failing path.** |
 | **Claiming a feature done after API-level test only — deferring functional verification (4b)** | **Stored API state ≠ working feature. Memory wired ≠ memory recalls. Skill referenced ≠ skill loads. PR #51/#54/#55 all merged with deferred 4b — leaving runtime behavior unverified. Always invoke and observe.** |
 | **Splitting the "real test" into a separate post-merge issue** | **If the test is needed to verify the feature, it's part of the feature. Same PR or a prerequisite PR — never a follow-up. "We'll test it later" is how features ship broken.** |
+| **Leaving exempt checkboxes as `[ ]` instead of `[x] N/A — reason`** | **GitHub's task counter shows the PR as "incomplete" even when the items are genuinely exempt (e.g. doc-only PRs and 4a/4b). Mark `[x] N/A — <reason>` so the counter reflects compliant state.** |
 
 ---
 
@@ -459,7 +483,9 @@ This document and the templates only work if they stay accurate.
 - **Anti-patterns observed in practice are signals to update the
   templates.** Step 4 live-test (4a) was added in PR #53 after PR #50
   demonstrated the gap. Step 4b functional-test was added in this PR
-  after PRs #51/#54/#55 demonstrated the next gap.
+  after PRs #51/#54/#55 demonstrated the next gap. Checkbox convention
+  for exempt items was added when PR #57 itself displayed as "7 of 9
+  tasks" despite being doc-only-exempt.
 
 ---
 
