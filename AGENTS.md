@@ -6,7 +6,11 @@
 
 This file follows the convention of AWS's own [bedrock-agentcore-sdk-python](https://github.com/aws/bedrock-agentcore-sdk-python) repo, which also has an AGENTS.md.
 
-The *why* behind this file (the methodology) is documented in [`docs/methodology/agent-onboarding.md`](docs/methodology/agent-onboarding.md). Read that if you want to understand the pattern, or apply it to another repo.
+The *why* behind this file (the methodology) is documented in two sibling docs:
+- [`docs/methodology/agent-onboarding.md`](docs/methodology/agent-onboarding.md) — Agent-Ready Repository Pattern (context durability)
+- [`docs/methodology/change-discipline.md`](docs/methodology/change-discipline.md) — how to land changes (issue granularity, PR sizing, anti-patterns, stacked PRs)
+
+Read either if you want to understand the pattern, or apply it to another repo.
 
 ---
 
@@ -192,9 +196,21 @@ Management-plane CRUD (CreateHarness, UpdateMemory, etc.) lives in **boto3** und
 
 ## 4. Repo methodology — read this before opening a PR
 
-This repo follows the **Agent-Ready Repository Pattern** documented in [`docs/methodology/agent-onboarding.md`](docs/methodology/agent-onboarding.md). The core idea: institutional memory lives in two artifacts (this AGENTS.md + structured GitHub issues) so any AI agent or human contributor can land in the repo cold and act effectively.
+This repo's methodology has three layers:
 
-In practice every change follows the **issue → fix → PR** loop documented in [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md). Brief summary:
+| Layer | Document | What it covers |
+|---|---|---|
+| **Artifact** | [`AGENTS.md`](AGENTS.md) (this file) | Institutional memory: invariants, AWS gotchas, tooling versions |
+| **Abstract pattern: context** | [`docs/methodology/agent-onboarding.md`](docs/methodology/agent-onboarding.md) | How to make any repo legible to AI agents (Agent-Ready Repository Pattern) |
+| **Abstract pattern: change** | [`docs/methodology/change-discipline.md`](docs/methodology/change-discipline.md) | How to land changes: issue granularity, PR sizing, anti-patterns, stacked PRs, templates |
+| **Practical contract** | [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md) | The lightweight day-to-day contract for THIS repo |
+
+Order of consultation when planning a change:
+1. **AGENTS.md** — does my change violate an invariant?
+2. **change-discipline.md** — is this stack-eligible or one parallel issue?
+3. **DEVELOPMENT_WORKFLOW.md** — what does the issue/PR template look like?
+
+In practice every change follows the **issue → fix → PR** loop. Brief summary:
 
 1. Open an **issue** with: Problem / Evidence / Proposed Solution / Acceptance Criteria / Priority / Effort / Out of Scope.
 2. Branch named `<type>/issue-<N>-<short-desc>` (e.g. `feat/issue-24-memory-uitestagent`).
@@ -244,10 +260,11 @@ For boto3, use `sts.get_caller_identity()["Account"]` — never hardcode.
 | Pattern | Example PR / file |
 |---|---|
 | Idempotent setup script (CloudWatch logs delivery) | `agentcore/scripts/setup_observability.py` (PR #39) |
-| Programmatic harness update | `agentcore/scripts/attach_memory.py` |
+| Programmatic harness update | `agentcore/scripts/attach_memory.py` (PR #40) |
 | AWS-resource-aware test verification with redaction | `agentcore/scripts/VERIFICATION_issue_28.md` |
 | Methodology dogfooding (each PR follows the workflow it documents) | `docs/DEVELOPMENT_WORKFLOW.md` (PR #3) |
-| Agent-Ready Repo Pattern (this AGENTS.md + methodology doc) | `docs/methodology/agent-onboarding.md` (PR #42) |
+| Agent-Ready Repo Pattern (AGENTS.md + agent-onboarding.md) | `docs/methodology/agent-onboarding.md` (PR #42) |
+| Change-discipline methodology (round-trip lineage with dora-metrics) | `docs/methodology/change-discipline.md` (PR #43) |
 
 ---
 

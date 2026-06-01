@@ -8,11 +8,16 @@ This document describes the *method*, not the specific contents of
 this repository. It is intended to be copied or referenced when
 setting up any new repository, or retrofitted onto existing ones.
 
+> **Sibling doc:** [`change-discipline.md`](change-discipline.md) —
+> the change-landing methodology (issue granularity, PR sizing, anti-
+> patterns, stacked PRs). The two together form the agentic dev kit.
+
 > **In this repo:** the methodology is implemented via [`AGENTS.md`](../../AGENTS.md)
 > at root, [`docs/DEVELOPMENT_WORKFLOW.md`](../DEVELOPMENT_WORKFLOW.md) for
-> the issue → fix → PR loop, and (optionally) GitHub issues with the
-> `discussion` label for architectural questions. See "Origin" at the
-> bottom for source attribution.
+> the issue → fix → PR loop, [`change-discipline.md`](change-discipline.md)
+> for the abstract change methodology, and (optionally) GitHub issues
+> with the `discussion` label for architectural questions. See "Origin"
+> at the bottom for source attribution.
 
 ---
 
@@ -157,6 +162,8 @@ context.
 > Acceptance Criteria template (`docs/DEVELOPMENT_WORKFLOW.md`) cover
 > feature work. Reserve the `discussion` label for genuinely
 > architectural decisions where the path isn't yet clear.
+> The change-landing discipline itself is documented in
+> [`change-discipline.md`](change-discipline.md).
 
 ### 6. Communication conventions
 
@@ -319,6 +326,8 @@ In this repo, the first applications are:
 - The repo's [`docs/DEVELOPMENT_WORKFLOW.md`](../DEVELOPMENT_WORKFLOW.md)
   — the issue → fix → PR loop used in v0.2.1 audit (PR #3) and
   ongoing v0.2.2 harness configuration work
+- Sibling methodology: [`change-discipline.md`](change-discipline.md)
+  — added in PR #43 alongside this file's cross-link update
 
 Adopt, adapt, or ignore. The core idea — *make context durable so
 agents don't need to be re-onboarded* — is the durable bit; the

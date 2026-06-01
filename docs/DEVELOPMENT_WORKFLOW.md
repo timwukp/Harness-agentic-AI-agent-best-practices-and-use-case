@@ -3,6 +3,13 @@
 > **Status:** Living document
 > **Audience:** Anyone making changes to this repo (humans or AI agents)
 > **Rule:** Read this before opening your first PR.
+> **Scope:** This is the **practical contract for THIS repo**. For the
+> abstract methodology applicable to any repo (5-step loop, stacked PRs,
+> 11 anti-patterns, 3 templates), see
+> [`docs/methodology/change-discipline.md`](methodology/change-discipline.md).
+> For making the repo legible to AI agents, see
+> [`docs/methodology/agent-onboarding.md`](methodology/agent-onboarding.md)
+> and [`AGENTS.md`](../AGENTS.md).
 
 ---
 
@@ -137,6 +144,11 @@ Small (1 file, < 50 lines) / Medium (1 doc, 1 area) / Large (multi-file)
 What you are explicitly NOT doing in this issue. Helps prevent scope creep.
 ```
 
+For **architectural / open-question** issues (use the `discussion` label),
+use the more elaborate template documented in
+[`docs/methodology/change-discipline.md`](methodology/change-discipline.md#issue-discussion-architectural)
+which adds Working Assumptions / Open Questions / Repo Context sections.
+
 ### PR template
 
 ```markdown
@@ -229,6 +241,10 @@ Same format as commit messages. The PR title is what shows up in `git log` after
 | Mixing formatting changes with logic changes | Diff becomes unreadable; do formatting in a separate PR |
 | Creating an issue and a PR simultaneously without thinking | Skips triage; you might be solving the wrong problem |
 
+For the full 11-row anti-pattern table (adds: stacked-PRs-when-independent,
+ignoring AGENTS.md invariants, re-discovering AGENTS.md §3 facts), see
+[`docs/methodology/change-discipline.md`](methodology/change-discipline.md#anti-patterns-to-avoid).
+
 ---
 
 ## Worked example: documentation audit
@@ -281,6 +297,9 @@ If you deviate, say so in the PR description and explain why.
 ## Related
 
 - [README.md](../README.md) — project overview
+- [AGENTS.md](../AGENTS.md) — institutional memory for AI agents
+- [docs/methodology/agent-onboarding.md](methodology/agent-onboarding.md) — Agent-Ready Repository Pattern (abstract)
+- [docs/methodology/change-discipline.md](methodology/change-discipline.md) — change-discipline methodology (abstract)
 - [PROJECT_STATE.md](../PROJECT_STATE.md) — persistent project state
 - [CHANGELOG.md](../CHANGELOG.md) — versioned change history
 
