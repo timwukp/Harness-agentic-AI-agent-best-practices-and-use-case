@@ -34,7 +34,7 @@ When you need facts, look here in this priority order:
 |---|---|---|
 | **AWS Bedrock AgentCore Developer Guide** | Concepts, tutorials, "how to" docs | https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/ |
 | **AWS Bedrock AgentCore Control Plane API Reference** | Exact API shapes, request/response JSON, field constraints | https://docs.aws.amazon.com/bedrock-agentcore-control/latest/APIReference/Welcome.html |
-| **`aws/bedrock-agentcore-sdk-python` GitHub repo** | Agent-side SDK source code (`BedrockAgentCoreApp`, `MemorySessionManager`, `BrowserClient`, `CodeInterpreterClient`) | https://github.com/aws/bedrock-agentcore-sdk-python |
+| **`aws/bedrock-agentcore-sdk-python` GitHub repo** | Agent-side SDK source code | https://github.com/aws/bedrock-agentcore-sdk-python |
 | **AgentCore samples** | Working code examples | https://github.com/awslabs/amazon-bedrock-agentcore-samples |
 | **CloudFormation `AWS::BedrockAgentCore::*`** | Schema-as-truth for all resource fields | https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/AWS_BedrockAgentCore.html |
 | **AWS CLI Reference** | CLI command shapes | https://docs.aws.amazon.com/cli/latest/reference/bedrock-agentcore-control/ |
@@ -177,7 +177,7 @@ ParamValidationError: Parameter validation failed:
 `secrets.token_hex(8)` gives 16 chars — **too short, will fail validation**.
 `secrets.token_hex(20)` gives 40 chars — safe.
 
-This caused a latent bug in PR #40's `attach_memory.py` (filed as #46, fixed in PR #50) — it never tripped in production because the memory was already attached on first run, so the `update_harness` call was never made. The bug also motivated the §4 live-test mandate (this PR).
+This caused a latent bug in PR #40's `attach_memory.py` (filed as #46, fixed in PR #50) — it never tripped in production because the memory was already attached on first run, so the `update_harness` call was never made. The bug also motivated the §4 live-test mandate (PR #53).
 
 #### 3.2.4 Memory: `strategyId`, NOT `memoryStrategyId`
 
@@ -269,6 +269,7 @@ Management-plane CRUD (CreateHarness, UpdateMemory, etc.) lives in **boto3** und
 - This project's convention for `actorId`:
   - `ci-pipeline` for CI runs (shared memory across tests)
   - `dev-{username}` for ad-hoc dev runs
+  - `repo-{owner}-{name}` for Bug-Fix Agent (per-repo scoping; see PR #54)
   - `tenant-{tenantId}` for future multi-tenant (tracked in #36)
 
 ---
@@ -280,13 +281,13 @@ This repo's methodology has three layers:
 | Layer | Document | What it covers |
 |---|---|---|
 | **Artifact** | [`AGENTS.md`](AGENTS.md) (this file) | Institutional memory: invariants, AWS gotchas, tooling versions |
-| **Abstract pattern: context** | [`docs/methodology/agent-onboarding.md`](docs/methodology/agent-onboarding.md) | How to make any repo legible to AI agents (Agent-Ready Repository Pattern) |
-| **Abstract pattern: change** | [`docs/methodology/change-discipline.md`](docs/methodology/change-discipline.md) | How to land changes: issue granularity, PR sizing, anti-patterns, stacked PRs, templates |
+| **Abstract pattern: context** | [`docs/methodology/agent-onboarding.md`](docs/methodology/agent-onboarding.md) | How to make any repo legible to AI agents |
+| **Abstract pattern: change** | [`docs/methodology/change-discipline.md`](docs/methodology/change-discipline.md) | How to land changes: issue granularity, PR sizing, anti-patterns, stacked PRs, templates, **comprehensive testing mandate** |
 | **Practical contract** | [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md) | The lightweight day-to-day contract for THIS repo |
 
 Order of consultation when planning a change:
 1. **AGENTS.md** — does my change violate an invariant?
-2. **change-discipline.md** — is this stack-eligible or one parallel issue?
+2. **change-discipline.md** — is this stack-eligible? Does my 4b plan need a 2-PR split?
 3. **DEVELOPMENT_WORKFLOW.md** — what does the issue/PR template look like?
 
 In practice every change follows the **issue → fix → PR** loop. Brief summary:
@@ -295,8 +296,13 @@ In practice every change follows the **issue → fix → PR** loop. Brief summar
 2. Branch named `<type>/issue-<N>-<short-desc>` (e.g. `feat/issue-24-memory-uitestagent`).
 3. Commits follow [Conventional Commits](https://www.conventionalcommits.org/) format with `(#N)` issue reference.
 4. **One issue = one logical change.** Don't bundle unrelated work.
-5. **⚠️ Live-test on AWS BEFORE opening the PR** for any code touching AWS APIs. Apply + idempotent re-run + `get_*` verify path. Doc-only PRs are exempt; deferring "verification post-merge" is NOT acceptable. See [`change-discipline.md` §"5-step loop" Step 4](docs/methodology/change-discipline.md#step-4-fix-one-issue-at-a-time) for full criteria.
-6. PR description follows the template in `docs/DEVELOPMENT_WORKFLOW.md`.
+5. **⚠️ Comprehensive test on AWS BEFORE opening the PR** for any code touching AWS APIs:
+   - **(4a)** API-level: apply + idempotent re-run + `get_*`/`list_*` verify path
+   - **(4b)** Functional / E2E: invoke the feature, observe runtime behavior matches expectations
+   - BOTH required. Doc-only PRs exempt. Deferring "to post-merge" or "to save money" is NOT acceptable.
+   - If 4b genuinely cannot be done pre-merge (e.g. depends on same-PR content reaching `main`), split into prereq PR + main PR — not a follow-up.
+   - See [`change-discipline.md` §"5-step loop" Step 4](docs/methodology/change-discipline.md#step-4-fix-one-issue-at-a-time) for full criteria.
+6. PR description follows the template in `docs/DEVELOPMENT_WORKFLOW.md` (both 4a and 4b checkboxes).
 7. PRs reference `Closes #N` so GitHub auto-closes the issue on merge.
 8. Each PR is reviewed and merged before starting the next one.
 
@@ -307,7 +313,7 @@ In practice every change follows the **issue → fix → PR** loop. Brief summar
 | `enhancement` / `feature` | You already know what to do. Issue defines acceptance criteria. |
 | `bug` | Something is broken; fix in scope is clear. |
 | `documentation` | Docs-only changes. |
-| `discussion` | You don't yet know the right answer. Use the template in `docs/methodology/agent-onboarding.md` (Context / Working assumptions / Open questions / Repo context). Often spawns one or more feature issues afterwards. |
+| `discussion` | You don't yet know the right answer. Use the discussion-issue template. |
 
 ---
 
@@ -342,11 +348,12 @@ For boto3, use `sts.get_caller_identity()["Account"]` — never hardcode.
 | Idempotent setup script (CloudWatch logs delivery) | `agentcore/scripts/setup_observability.py` (PR #39) |
 | Programmatic harness update (memory attach) | `agentcore/scripts/attach_memory.py` (PR #40, fixed in PR #50) |
 | Programmatic harness update (allowedTools / maxTokens / tags) | `agentcore/scripts/tighten_harness_config.py` (PR #47) |
-| Programmatic harness update (skills via git source) | `agentcore/scripts/wire_skills.py` (PR #51) |
+| Programmatic harness update (skills via git source) | `agentcore/scripts/wire_skills.py` (PR #51, extended in PR #55) |
+| Two-phase create + attach (memory) | `agentcore/scripts/create_bugfix_memory.py` (PR #54) |
 | AWS-resource-aware test verification with redaction | `agentcore/scripts/VERIFICATION_issue_28.md` |
-| Methodology dogfooding (each PR follows the workflow it documents) | `docs/DEVELOPMENT_WORKFLOW.md` (PR #3) |
-| Agent-Ready Repo Pattern (AGENTS.md + agent-onboarding.md) | `docs/methodology/agent-onboarding.md` (PR #42) |
-| Change-discipline methodology (round-trip lineage with dora-metrics) | `docs/methodology/change-discipline.md` (PR #44) |
+| Methodology dogfooding | `docs/DEVELOPMENT_WORKFLOW.md` (PR #3) |
+| Agent-Ready Repo Pattern | `docs/methodology/agent-onboarding.md` (PR #42) |
+| Change-discipline methodology | `docs/methodology/change-discipline.md` (PR #44, tightened PR #53, tightened PR #56) |
 
 ---
 
@@ -372,7 +379,7 @@ This reveals:
 - Whether a field is a structure (likely `optionalValue` wrapper) or a plain type (no wrapper) — see §3.2.1
 - Required vs optional fields (via `op.input_shape.required_members`)
 
-Doing this BEFORE writing payload code saves hours. PR #47 used this to discover all three rules in §3.2.
+Doing this BEFORE writing payload code saves hours.
 
 ### 7.2 List operations containing a keyword
 
@@ -392,7 +399,7 @@ If the public boto3 SDK seems to lack an operation you need:
 2. **Search AWS docs:** `https://docs.aws.amazon.com/search?searchPath=documentation&searchQuery=YOUR_OPERATION` — if the operation is documented, it exists in the API even if your local SDK is out of date.
 3. **Look at the CloudFormation type spec** for the resource — that's the schema-of-truth.
 4. **Check the [bedrock-agentcore-sdk-python](https://github.com/aws/bedrock-agentcore-sdk-python) source** — even if the operation isn't there, allowlisted method names hint at API shapes.
-5. **Don't conclude "console-only" without verifying SDK version.** PR #40 was originally written assuming Memory attachment was console-only because boto3 1.42.x lacks `update_harness`. boto3 1.43.18 has it.
+5. **Don't conclude "console-only" without verifying SDK version.**
 
 ---
 
@@ -401,7 +408,7 @@ If the public boto3 SDK seems to lack an operation you need:
 - `PROJECT_STATE.md` — persistent project state, updated periodically
 - `CHANGELOG.md` — Keep-a-Changelog versioned history
 - Last major audit: **v0.2.1** (2026-05-30) — sync of all docs with code reality
-- v0.2.2 in progress: Harness configuration improvements (Memory, Skills, Tools, Observability) tracked in issues #18 onwards
+- v0.2.2 in progress: Harness configuration improvements + comprehensive testing methodology
 
 ---
 
