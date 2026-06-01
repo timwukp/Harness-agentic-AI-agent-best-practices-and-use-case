@@ -1,3 +1,8 @@
+---
+name: ui-testing
+description: UI testing methodology for web applications — severity classification, interaction patterns, edge case handling, and report structure for the UI Test Agent
+---
+
 # UI Testing Skill
 
 You are performing UI testing on web applications. Follow these guidelines:
