@@ -44,6 +44,7 @@ Two specific pages worth pinning to memory:
 - **Memory get-started:** https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/memory-get-started.html
 - **Harness overview:** https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness.html
 - **HarnessAgentCoreMemoryConfiguration API:** https://docs.aws.amazon.com/bedrock-agentcore-control/latest/APIReference/API_HarnessAgentCoreMemoryConfiguration.html
+- **Connect to tools (harness-tools):** https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-tools.html
 
 ---
 
@@ -86,7 +87,7 @@ aws --version                                          # expect ≥ 2.34.57
 
 ## 3. Hard-learned facts (gotchas to skip)
 
-These cost real debugging time during issues #28 (observability), #24 (memory attachment), #29 (harness config tightening), #58 (SKILL.md format), #60 (Memory IAM gap). Know them up front:
+These cost real debugging time during issues #28 (observability), #24 (memory attachment), #29 (harness config tightening), #58 (SKILL.md format), #60 (Memory IAM gap), #21/#65 (tools wiring + invocation). Know them up front:
 
 ### 3.1 Harness vs Runtime — the same thing under the hood, but two APIs
 
@@ -112,8 +113,8 @@ The pattern is **type-driven**, not field-name-driven:
 # ✅ correct — list/integer fields pass directly (NO wrapper)
 control.update_harness(
     harnessId=harness_id,
-    allowedTools=["browser", "code_interpreter"],   # plain list of string
-    maxTokens=65536,                                 # plain integer
+    allowedTools=["browser_*", "code_interpreter*", "skills"],   # plain list of string
+    maxTokens=65536,                                              # plain integer
     clientToken="...",
 )
 
@@ -127,7 +128,7 @@ control.update_harness(
 
 # ❌ wrong — wrapping a plain field
 control.update_harness(
-    allowedTools={"optionalValue": ["browser", "code_interpreter"]},  # rejected
+    allowedTools={"optionalValue": ["browser_*", "code_interpreter*"]},  # rejected
     ...
 )
 ```
@@ -145,6 +146,7 @@ control.update_harness(
 | `tools` | list of structure | None |
 | `skills` | list of structure | None |
 | `memory` | structure | `optionalValue` |
+| `environmentArtifact` | structure | `optionalValue` |
 | `model` | structure | `optionalValue` (presumed; verify) |
 | `environment` | structure | `optionalValue` (presumed; verify) |
 | `authorizerConfiguration` | structure | `optionalValue` (presumed; verify) |
@@ -210,7 +212,7 @@ memory = {
 `UpdateHarness.skills` accepts a list of skill objects. Each skill object has exactly ONE source type from a 3-way UNION:
 
 ```python
-# Option A: path source (local file in container; useful for #21 Container mode)
+# Option A: path source (local file in container; useful for custom-image deployments)
 {"path": {"path": "/skills/ui-testing"}}
 
 # Option B: s3 source (object in S3 bucket)
@@ -229,8 +231,6 @@ memory = {
 
 - 4b functional verification of a git-source skill is **impossible pre-merge** for a SKILL.md that lives only on a feature branch — it's the legitimate "alternative verification path" per change-discipline.md "When to deviate" (PR #55 / #59 set the precedent).
 - Forking a private branch for testing won't work; the SKILL.md must be on the default branch first.
-
-For latency-sensitive deployments (Container mode, #21), prefer `path` source so the skill ships with the container image at build time.
 
 Verified via schema introspection (§7.1) in PR #51 / #55.
 
@@ -356,7 +356,7 @@ The retrieval Condition's `bedrock-agentcore:namespace` IAM key must match the n
 
 Convert via regex `\{[^}]+\}` → `*`.
 
-**Convention used in this repo:** inline policy named `<HarnessName>MemoryAccess` per Memory wire. The `grant_memory_access.py` script (PR #61) is idempotent and discovers harnesses with Memory wired automatically.
+**Convention used in this repo:** inline policy named `<HarnessName>MemoryAccess` per Memory wire. The `grant_memory_access.py` script (PR #61) is idempotent and discovers harnesses with Memory wired automatically. As of PR #64, both `attach_memory.py` and `create_bugfix_memory.py` call this function automatically as their final step.
 
 This was discovered the hard way: PR #54 wired BugFix Memory but skipped step 3; PR #57's 4b mandate caught it on the first invocation; fixed in PR #61.
 
@@ -387,6 +387,98 @@ Caveats discovered in PR #54:
 3. Strategy modifications on `UpdateMemory` use `addMemoryStrategies` / `modifyMemoryStrategies` / `deleteMemoryStrategies` — separate fields, not direct list assignment.
 
 Adding new strategies has cost implications: each strategy processes events in background to extract long-term records, consuming compute resources.
+
+### 3.11 Harness tools wiring — 4 gotchas that cost a lot of debug time
+
+Discovered while investigating issue #21 (originally framed as "Container mode for Playwright"; turned out to be 4 separate config bugs).
+
+#### 3.11.1 Harness mode is already a Container deployment by default
+
+Don't be misled by older docs about "switching to Container mode". When you create a Harness, AgentCore provisions a runtime with the public harness loader image as `containerConfiguration.containerUri`:
+
+```json
+"agentRuntimeArtifact": {
+  "containerConfiguration": {
+    "containerUri": "public.ecr.aws/i0n3d3i5/harness-us-east-1:latest"
+  }
+}
+```
+
+The Harness IS the container. The image already has all the wiring for `agentcore_browser`, `agentcore_code_interpreter`, `skills`, etc. **You do not need to build a custom image** to use these tools (issue #21's original framing was wrong).
+
+If you want to switch to a custom image (advanced), `update_harness(environmentArtifact={"optionalValue": {"containerConfiguration": {"containerUri": "<your-ecr-uri>"}}})` is the API. Don't do this without a strong reason (custom image must implement the harness protocol — HTTP server contract, OTel emission, the agentcore_* tool primitives).
+
+#### 3.11.2 `tools[].config` is documented optional but practically required
+
+The schema shows `tools.member.config` as optional (only `type` is in `required_members`). But omitting `config` means the tool is stored on the harness but **not actually wired at runtime** — agent only sees `skills`.
+
+```python
+# ❌ Stored but not wired — agent doesn't see browser/code_interpreter
+tools = [
+    {"type": "agentcore_browser", "name": "browser"},
+    {"type": "agentcore_code_interpreter", "name": "code_interpreter"},
+]
+
+# ✅ Wired — config is the activation
+tools = [
+    {
+        "type": "agentcore_browser",
+        "name": "browser",
+        "config": {
+            "agentCoreBrowser": {
+                "browserArn": "arn:aws:bedrock-agentcore:us-east-1:aws:browser/aws.browser.v1"
+            }
+        },
+    },
+    {
+        "type": "agentcore_code_interpreter",
+        "name": "code_interpreter",
+        "config": {
+            "agentCoreCodeInterpreter": {
+                "codeInterpreterArn": "arn:aws:bedrock-agentcore:us-east-1:aws:code-interpreter/aws.codeinterpreter.v1"
+            }
+        },
+    },
+]
+```
+
+The `config` UNION has 5 keys (one per tool type): `remoteMcp` / `agentCoreBrowser` / `agentCoreGateway` / `inlineFunction` / `agentCoreCodeInterpreter`. Empty `{}` for the inner config also works (uses default browser/code-interpreter ARNs), but explicit ARNs are more robust.
+
+#### 3.11.3 `allowedTools` plain-name doesn't match declared tools — use globs
+
+The doc table at https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-tools.html#allowedtools-patterns shows plain names matching builtins (`shell`, `file_operations`). For DECLARED tools (browser, code_interpreter, inline functions), plain names like `"browser"` **do not match** — the entry is filtered out.
+
+```python
+# ❌ Filters out browser AND code_interpreter; agent sees only skills
+allowedTools = ["browser", "code_interpreter"]
+
+# ✅ Glob matches the primitives the tools expose
+allowedTools = ["browser_*", "code_interpreter*", "skills"]
+
+# Also works:
+allowedTools = ["*"]  # everything (broad)
+```
+
+(`skills` is plain because it's a builtin; matches by name fine.)
+
+#### 3.11.4 `agentcore_browser` exposes 6 primitives, not a single name
+
+When wired via `agentCoreBrowser` config, the tool exposes these primitives to the agent (verified live):
+
+```
+browser_navigate
+browser_click
+browser_type
+browser_screenshot
+browser_console_messages
+browser_network_requests
+```
+
+So `allowedTools` must reference primitives or use `browser_*` glob. The harness's `tools[].name = "browser"` is the configuration name; the runtime expansion to primitives is hidden behind the public harness loader.
+
+The agentcore_code_interpreter likely has a similar primitive expansion (not yet enumerated; investigated as part of issue #65).
+
+**Note:** As of issue #65 (filed when this gotcha was discovered), invoking these primitives from the agent still returns errors at the data plane layer — the primitives are visible but `browser_navigate` calls fail. Issue #65 tracks the remaining fix (likely IAM or session resource provisioning).
 
 ---
 
@@ -462,11 +554,11 @@ For boto3, use `sts.get_caller_identity()["Account"]` — never hardcode.
 | Pattern | Example PR / file |
 |---|---|
 | Idempotent setup script (CloudWatch logs delivery) | `agentcore/scripts/setup_observability.py` (PR #39) |
-| Programmatic harness update (memory attach) | `agentcore/scripts/attach_memory.py` (PR #40, fixed in PR #50) |
+| Programmatic harness update (memory attach) | `agentcore/scripts/attach_memory.py` (PR #40, fixed in PR #50, trinity-aware in PR #64) |
 | Programmatic harness update (allowedTools / maxTokens / tags) | `agentcore/scripts/tighten_harness_config.py` (PR #47) |
 | Programmatic harness update (skills via git source) | `agentcore/scripts/wire_skills.py` (PR #51, extended in PR #55) |
-| Two-phase create + attach (memory) | `agentcore/scripts/create_bugfix_memory.py` (PR #54) |
-| **IAM grant for Memory data plane (post-Memory-wire)** | **`agentcore/scripts/grant_memory_access.py` (PR #61)** |
+| Two-phase create + attach (memory) | `agentcore/scripts/create_bugfix_memory.py` (PR #54, trinity-aware in PR #64) |
+| **IAM grant for Memory data plane (post-Memory-wire)** | **`agentcore/scripts/grant_memory_access.py` (PR #61, importable function in PR #64)** |
 | AWS-resource-aware test verification with redaction | `agentcore/scripts/VERIFICATION_issue_28.md` |
 | Methodology dogfooding | `docs/DEVELOPMENT_WORKFLOW.md` (PR #3) |
 | Agent-Ready Repo Pattern | `docs/methodology/agent-onboarding.md` (PR #42) |
@@ -495,6 +587,7 @@ This reveals:
 - Field shapes (string / integer / list / structure / map)
 - Whether a field is a structure (likely `optionalValue` wrapper) or a plain type (no wrapper) — see §3.2.1
 - Required vs optional fields (via `op.input_shape.required_members`)
+- Sub-structure UNIONs (e.g. `tools[].config`, `skills[].member`, `Memory.memoryStrategies[].member`)
 
 Doing this BEFORE writing payload code saves hours.
 
@@ -535,7 +628,7 @@ Fix:
 /path/to/newer-boto3/python3 agentcore/scripts/grant_memory_access.py
 ```
 
-The script discovers harnesses with Memory wired and ensures each role has the canonical `<HarnessName>MemoryAccess` inline policy. Idempotent — safe to re-run.
+The script discovers harnesses with Memory wired and ensures each role has the canonical `<HarnessName>MemoryAccess` inline policy. Idempotent — safe to re-run. As of PR #64, the Memory wire scripts call this automatically as a final step.
 
 If the policy already exists but invocation still fails, check the `bedrock-agentcore:namespace` Condition allows the namespaces in your harness's `retrievalConfig` (see §3.9 namespace conversion rule).
 
@@ -552,6 +645,32 @@ Cause: missing or malformed YAML frontmatter — see §3.8.
 
 Fix: prepend the file with the frontmatter block. For git-source skills, the fix must merge to default branch before it takes effect (see §3.2.5 — there's no branch field on git source).
 
+### 7.6 Harness has tools declared but agent says "I only have skills"
+
+Symptom: agent enumerates tools and reports only `skills` is available, even though `harness.json` declares browser/code_interpreter/inline_functions.
+
+Cause: one of three configuration bugs (see §3.11):
+
+1. `tools[].config` field is missing — tool isn't actually wired (§3.11.2)
+2. `allowedTools` uses plain names — they don't match declared tools (§3.11.3)
+3. `agentcore_browser` exposes primitives, not a single name — you allowed `["browser"]` but the runtime knows `["browser_navigate", ...]` (§3.11.4)
+
+Fix:
+
+```python
+# 1. Add config to each tool
+tools = [{"type": "agentcore_browser", "name": "browser",
+          "config": {"agentCoreBrowser": {"browserArn": "..."}}}]
+
+# 2. Use globs in allowedTools
+allowedTools = ["browser_*", "code_interpreter*", "skills"]
+
+# 3. Apply
+control.update_harness(harnessId=..., tools=tools, allowedTools=allowedTools, clientToken=...)
+```
+
+If the agent now sees the primitives but invocations of `browser_navigate` etc. fail with errors, that's a different bug — see issue #65.
+
 ---
 
 ## 8. Project state (auto-stale; check git for current)
@@ -559,7 +678,7 @@ Fix: prepend the file with the frontmatter block. For git-source skills, the fix
 - `PROJECT_STATE.md` — persistent project state, updated periodically
 - `CHANGELOG.md` — Keep-a-Changelog versioned history
 - Last major audit: **v0.2.1** (2026-05-30) — sync of all docs with code reality
-- v0.2.2 in progress: Harness configuration (Memory + skills + tighten + IAM) + comprehensive testing methodology
+- v0.2.2 in progress: Harness configuration (Memory + skills + tighten + IAM + tools-wiring) + comprehensive testing methodology
 
 ---
 
