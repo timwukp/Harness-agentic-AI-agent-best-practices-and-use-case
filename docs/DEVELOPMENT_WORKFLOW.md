@@ -5,7 +5,7 @@
 > **Rule:** Read this before opening your first PR.
 > **Scope:** This is the **practical contract for THIS repo**. For the
 > abstract methodology applicable to any repo (5-step loop, stacked PRs,
-> 14 anti-patterns, 3 templates), see
+> 15 anti-patterns, 3 templates), see
 > [`docs/methodology/change-discipline.md`](methodology/change-discipline.md).
 > For making the repo legible to AI agents, see
 > [`docs/methodology/agent-onboarding.md`](methodology/agent-onboarding.md)
@@ -148,6 +148,24 @@ For each issue:
 
 Copy-paste these when opening issues / PRs.
 
+### Checkbox convention
+
+GitHub auto-counts every `- [ ]` and `- [x]` marker in issue and PR
+descriptions, displaying as **"X of Y tasks complete"**. For exempt items
+(e.g. doc-only PRs are exempt from Step 4 4a/4b), mark
+`- [x] **N/A — <reason>**` rather than leaving as `- [ ]`. This keeps the
+GitHub counter reflecting compliant state instead of misleading "incomplete".
+
+✅ correct (counter shows complete):
+```
+- [x] **(4a) API-level live test** — N/A — doc-only PR exempt
+```
+
+❌ wrong (counter shows incomplete forever):
+```
+- [ ] (4a) API-level live test — N/A this is a doc-only PR
+```
+
 ### Issue template
 
 ```markdown
@@ -172,6 +190,9 @@ For AWS-touching changes — mandatory before opening PR (per Step 4):
 - [ ] **(4a) API-level live test passes** — apply + idempotent re-run + state verification
 - [ ] **(4b) Functional / E2E test passes** — invoke the feature; observe runtime behavior matches expectations
 - [ ] Both tested BEFORE opening the PR; evidence in `agentcore/scripts/VERIFICATION_issue_<N>.md`
+
+For doc-only issues, mark the 3 above as `[x] **N/A — doc-only**` per the
+checkbox convention above.
 
 Issue-specific criteria (concrete behavior checks):
 - [ ] Concrete check 1
@@ -230,7 +251,7 @@ For AWS-touching PRs (NOT exempt for doc-only):
 - [ ] Local check: `cmd to run`
 - [ ] Re-run of CI
 
-Doc-only PRs are exempt from 4a and 4b — explain in PR description.
+For doc-only PRs (exempt from 4a/4b), mark both as `[x] **N/A — doc-only PR exempt**` per the checkbox convention above. Don't leave them as `[ ]` — that signals "incomplete" to GitHub's task counter.
 
 ## Out of Scope
 
@@ -303,8 +324,9 @@ Same format as commit messages. The PR title is what shows up in `git log` after
 | **Opening a PR for AWS-touching code without API-level live test (4a)** | **Untested API path merges; bugs surface only in production. PR #50 case-in-point.** |
 | **Claiming a feature done after API-level test only — deferring functional verification (4b)** | **Stored API state ≠ working feature. PRs #51/#54/#55 all merged with deferred 4b — leaving runtime behavior unverified. Always invoke and observe.** |
 | **Splitting the "real test" into a separate post-merge issue** | **If the test is needed to verify the feature, it's part of the feature. Same PR or a prerequisite PR — never a follow-up.** |
+| **Leaving exempt checkboxes as `[ ]` instead of `[x] N/A — reason`** | **GitHub task counter shows the PR as incomplete forever. PR #57 itself shipped with "7 of 9" displayed because of this — fixed retroactively. Use `[x] **N/A — <reason>**` for exempt items.** |
 
-For the full 14-row anti-pattern table (adds: stacked-PRs-when-independent,
+For the full 15-row anti-pattern table (adds: stacked-PRs-when-independent,
 ignoring AGENTS.md invariants, re-discovering AGENTS.md §3 facts), see
 [`docs/methodology/change-discipline.md`](methodology/change-discipline.md#anti-patterns-to-avoid).
 
