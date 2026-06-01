@@ -40,6 +40,10 @@ import sys
 import time
 from typing import Any
 
+# Ensure sibling scripts are importable when running from repo root
+import os as _os
+sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+
 try:
     import boto3
     import botocore
@@ -265,6 +269,16 @@ def main() -> int:
             print(
                 f"    - {ns:<40} topK={c.get('topK')}  relevance={c.get('relevanceScore')}"
             )
+        # Even if Memory is already attached, verify IAM is still correct (drift check)
+        print("\n=== Step 3 of trinity (verify): grant_memory_access_for_harness ===")
+        from grant_memory_access import grant_memory_access_for_harness
+        grant = grant_memory_access_for_harness(
+            harness["harnessId"],
+            control_client=control,
+            dry_run=args.dry_run,
+            verbose=True,
+        )
+        print(f"  IAM grant action: {grant['action']}")
         return 0
 
     retrieval_config = build_retrieval_config(memory, args.top_k, args.relevance_score)
@@ -286,6 +300,19 @@ def main() -> int:
         return 0
 
     poll_until_ready(control, harness["harnessId"])
+
+    # Trinity step 3: grant Memory data plane IAM perms to harness's role
+    # (per AGENTS.md §3.9 — Memory wire requires create + update_harness + IAM grant).
+    # Idempotent — no-op if policy already matches.
+    print("\n=== Step 3 of trinity: grant_memory_access_for_harness ===")
+    from grant_memory_access import grant_memory_access_for_harness
+    grant = grant_memory_access_for_harness(
+        harness["harnessId"],
+        control_client=control,
+        dry_run=args.dry_run,
+        verbose=True,
+    )
+    print(f"  IAM grant action: {grant['action']}")
     print("\n=== Done ===")
     print("Re-run this script to confirm idempotency (should print 'ALREADY ATTACHED').")
     return 0
