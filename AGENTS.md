@@ -86,7 +86,7 @@ aws --version                                          # expect ≥ 2.34.57
 
 ## 3. Hard-learned facts (gotchas to skip)
 
-These cost real debugging time during issues #28 (observability) and #24 (memory attachment). Know them up front:
+These cost real debugging time during issues #28 (observability), #24 (memory attachment), and #29 (harness config tightening). Know them up front:
 
 ### 3.1 Harness vs Runtime — the same thing under the hood, but two APIs
 
@@ -100,9 +100,88 @@ These cost real debugging time during issues #28 (observability) and #24 (memory
 - For modification, use the **`*Harness` family** (boto3 ≥ 1.43.18 required).
 - For invocation, use **`InvokeHarness`** (NOT `InvokeAgentRuntime`).
 
-### 3.2 API field-name gotchas
+### 3.2 `UpdateHarness` payload rules
 
-When calling `update_harness(memory={...})`, the structure is:
+Discovered via schema introspection (see §7.1) in PR #47 / VERIFICATION_issue_29.md.
+
+#### 3.2.1 `optionalValue` wrapper applies only to complex structure fields
+
+The pattern is **type-driven**, not field-name-driven:
+
+```python
+# ✅ correct — list/integer fields pass directly (NO wrapper)
+control.update_harness(
+    harnessId=harness_id,
+    allowedTools=["browser", "code_interpreter"],   # plain list of string
+    maxTokens=65536,                                 # plain integer
+    clientToken="...",
+)
+
+# ✅ correct — structure fields wrap with optionalValue
+control.update_harness(
+    harnessId=harness_id,
+    memory={"optionalValue": {"agentCoreMemoryConfiguration": {...}}},  # structure
+    model={"optionalValue": {"bedrockModelConfig": {...}}},             # structure (presumed)
+    clientToken="...",
+)
+
+# ❌ wrong — wrapping a plain field
+control.update_harness(
+    allowedTools={"optionalValue": ["browser", "code_interpreter"]},  # rejected
+    ...
+)
+```
+
+**Field shape table** (from `boto3.client(...).meta.service_model.operation_model("UpdateHarness").input_shape.members`):
+
+| Field | Shape | Wrapper? |
+|---|---|---|
+| `allowedTools` | list of string | None |
+| `maxTokens` | integer | None |
+| `maxIterations` | integer | None |
+| `timeoutSeconds` | integer | None |
+| `executionRoleArn` | string | None |
+| `systemPrompt` | list of structure | None (list of structures, not optionalValue) |
+| `tools` | list of structure | None |
+| `skills` | list of structure | None |
+| `memory` | structure | `optionalValue` |
+| `model` | structure | `optionalValue` (presumed; verify) |
+| `environment` | structure | `optionalValue` (presumed; verify) |
+| `authorizerConfiguration` | structure | `optionalValue` (presumed; verify) |
+| `truncation` | structure | `optionalValue` (presumed; verify) |
+
+#### 3.2.2 `tags` is NOT on `UpdateHarness` — use `TagResource`
+
+```python
+# ❌ This will fail — tags is not a UpdateHarness parameter
+control.update_harness(harnessId=h, tags={...})  # rejected
+
+# ✅ Tags require a separate API call
+control.tag_resource(
+    resourceArn="arn:aws:bedrock-agentcore:us-east-1:...:harness/...",
+    tags={"team": "qa-platform", "environment": "production", ...},
+)
+```
+
+`tag_resource` is idempotent for matching key/value pairs.
+
+`CreateHarness` accepts `tags` at creation time, but `UpdateHarness` was deliberately split. Same pattern likely applies to other resource types (memories, runtimes).
+
+#### 3.2.3 `clientToken` min length is 33 characters
+
+```
+ParamValidationError: Parameter validation failed:
+  Invalid length for parameter clientToken, value: 16, valid min length: 33
+```
+
+`secrets.token_hex(8)` gives 16 chars — **too short, will fail validation**.
+`secrets.token_hex(20)` gives 40 chars — safe.
+
+This caused a latent bug in PR #40's `attach_memory.py` (filed as #46) — it never tripped in production because the memory was already attached on first run, so the `update_harness` call was never made.
+
+#### 3.2.4 Memory: `strategyId`, NOT `memoryStrategyId`
+
+When building `retrievalConfig` inside the memory payload:
 
 ```python
 memory = {
@@ -190,7 +269,7 @@ Management-plane CRUD (CreateHarness, UpdateMemory, etc.) lives in **boto3** und
 - This project's convention for `actorId`:
   - `ci-pipeline` for CI runs (shared memory across tests)
   - `dev-{username}` for ad-hoc dev runs
-  - `tenant-{tenantId}` for future multi-tenant (tracked in #35)
+  - `tenant-{tenantId}` for future multi-tenant (tracked in #36)
 
 ---
 
@@ -260,15 +339,50 @@ For boto3, use `sts.get_caller_identity()["Account"]` — never hardcode.
 | Pattern | Example PR / file |
 |---|---|
 | Idempotent setup script (CloudWatch logs delivery) | `agentcore/scripts/setup_observability.py` (PR #39) |
-| Programmatic harness update | `agentcore/scripts/attach_memory.py` (PR #40) |
+| Programmatic harness update (memory attach) | `agentcore/scripts/attach_memory.py` (PR #40) |
+| Programmatic harness update (allowedTools / maxTokens / tags) | `agentcore/scripts/tighten_harness_config.py` (PR #47) |
 | AWS-resource-aware test verification with redaction | `agentcore/scripts/VERIFICATION_issue_28.md` |
 | Methodology dogfooding (each PR follows the workflow it documents) | `docs/DEVELOPMENT_WORKFLOW.md` (PR #3) |
 | Agent-Ready Repo Pattern (AGENTS.md + agent-onboarding.md) | `docs/methodology/agent-onboarding.md` (PR #42) |
-| Change-discipline methodology (round-trip lineage with dora-metrics) | `docs/methodology/change-discipline.md` (PR #43) |
+| Change-discipline methodology (round-trip lineage with dora-metrics) | `docs/methodology/change-discipline.md` (PR #44) |
 
 ---
 
 ## 7. When you're stuck
+
+**Always do this first** for any AWS API work:
+
+### 7.1 SDK schema introspection
+
+```python
+import boto3
+c = boto3.client("bedrock-agentcore-control", region_name="us-east-1")
+op = c.meta.service_model.operation_model("UpdateHarness")  # or any op name
+print("Input fields:")
+for name, member in op.input_shape.members.items():
+    print(f"  {name}: {member.type_name}")
+    # for nested structures, recurse via member.members
+```
+
+This reveals:
+- Exact field names (case-sensitive)
+- Field shapes (string / integer / list / structure / map)
+- Whether a field is a structure (likely `optionalValue` wrapper) or a plain type (no wrapper) — see §3.2.1
+- Required vs optional fields (via `op.input_shape.required_members`)
+
+Doing this BEFORE writing payload code saves hours. PR #47 used this to discover all three rules in §3.2.
+
+### 7.2 List operations containing a keyword
+
+```python
+for op_name in c.meta.service_model.operation_names:
+    if "tag" in op_name.lower():
+        print(op_name)
+```
+
+Useful for discovering side-channel APIs like `TagResource` / `ListTagsForResource` / `UntagResource` that aren't fields on the main `Update*` operations.
+
+### 7.3 Other escalation steps
 
 If the public boto3 SDK seems to lack an operation you need:
 
@@ -276,7 +390,7 @@ If the public boto3 SDK seems to lack an operation you need:
 2. **Search AWS docs:** `https://docs.aws.amazon.com/search?searchPath=documentation&searchQuery=YOUR_OPERATION` — if the operation is documented, it exists in the API even if your local SDK is out of date.
 3. **Look at the CloudFormation type spec** for the resource — that's the schema-of-truth.
 4. **Check the [bedrock-agentcore-sdk-python](https://github.com/aws/bedrock-agentcore-sdk-python) source** — even if the operation isn't there, allowlisted method names hint at API shapes.
-5. **Don't conclude "console-only" without verifying SDK version.** The project's PR #40 was originally written assuming Memory attachment was console-only because boto3 1.42.x lacks `update_harness`. boto3 1.43.18 has it.
+5. **Don't conclude "console-only" without verifying SDK version.** PR #40 was originally written assuming Memory attachment was console-only because boto3 1.42.x lacks `update_harness`. boto3 1.43.18 has it.
 
 ---
 
