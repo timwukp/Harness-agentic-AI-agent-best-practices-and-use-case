@@ -177,7 +177,7 @@ ParamValidationError: Parameter validation failed:
 `secrets.token_hex(8)` gives 16 chars — **too short, will fail validation**.
 `secrets.token_hex(20)` gives 40 chars — safe.
 
-This caused a latent bug in PR #40's `attach_memory.py` (filed as #46) — it never tripped in production because the memory was already attached on first run, so the `update_harness` call was never made.
+This caused a latent bug in PR #40's `attach_memory.py` (filed as #46, fixed in PR #50) — it never tripped in production because the memory was already attached on first run, so the `update_harness` call was never made. The bug also motivated the §4 live-test mandate (this PR).
 
 #### 3.2.4 Memory: `strategyId`, NOT `memoryStrategyId`
 
@@ -295,9 +295,10 @@ In practice every change follows the **issue → fix → PR** loop. Brief summar
 2. Branch named `<type>/issue-<N>-<short-desc>` (e.g. `feat/issue-24-memory-uitestagent`).
 3. Commits follow [Conventional Commits](https://www.conventionalcommits.org/) format with `(#N)` issue reference.
 4. **One issue = one logical change.** Don't bundle unrelated work.
-5. PR description follows the template in `docs/DEVELOPMENT_WORKFLOW.md`.
-6. PRs reference `Closes #N` so GitHub auto-closes the issue on merge.
-7. Each PR is reviewed and merged before starting the next one.
+5. **⚠️ Live-test on AWS BEFORE opening the PR** for any code touching AWS APIs. Apply + idempotent re-run + `get_*` verify path. Doc-only PRs are exempt; deferring "verification post-merge" is NOT acceptable. See [`change-discipline.md` §"5-step loop" Step 4](docs/methodology/change-discipline.md#step-4-fix-one-issue-at-a-time) for full criteria.
+6. PR description follows the template in `docs/DEVELOPMENT_WORKFLOW.md`.
+7. PRs reference `Closes #N` so GitHub auto-closes the issue on merge.
+8. Each PR is reviewed and merged before starting the next one.
 
 ### Issue label convention
 
@@ -339,8 +340,9 @@ For boto3, use `sts.get_caller_identity()["Account"]` — never hardcode.
 | Pattern | Example PR / file |
 |---|---|
 | Idempotent setup script (CloudWatch logs delivery) | `agentcore/scripts/setup_observability.py` (PR #39) |
-| Programmatic harness update (memory attach) | `agentcore/scripts/attach_memory.py` (PR #40) |
+| Programmatic harness update (memory attach) | `agentcore/scripts/attach_memory.py` (PR #40, fixed in PR #50) |
 | Programmatic harness update (allowedTools / maxTokens / tags) | `agentcore/scripts/tighten_harness_config.py` (PR #47) |
+| Programmatic harness update (skills via git source) | `agentcore/scripts/wire_skills.py` (PR #51) |
 | AWS-resource-aware test verification with redaction | `agentcore/scripts/VERIFICATION_issue_28.md` |
 | Methodology dogfooding (each PR follows the workflow it documents) | `docs/DEVELOPMENT_WORKFLOW.md` (PR #3) |
 | Agent-Ready Repo Pattern (AGENTS.md + agent-onboarding.md) | `docs/methodology/agent-onboarding.md` (PR #42) |

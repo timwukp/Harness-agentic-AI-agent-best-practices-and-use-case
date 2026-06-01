@@ -106,8 +106,20 @@ For each issue:
 1. **Branch** from `main` using the naming convention below.
 2. **Commit** with focused messages. Reference the issue.
 3. **Push** the branch.
-4. **Open PR** using the PR template. Title mirrors the issue.
-5. PR description includes `Closes #N` so GitHub auto-closes the
+4. **Live-test on AWS** for any code touching AWS APIs. ⚠️ **Mandatory.** Required:
+   - Apply the change against your AWS account (the actual API call, not just `--dry-run`)
+   - Re-run the script to confirm idempotency (no API mutations on second run)
+   - Confirm target state via `get_*` / `list_*` / `describe_*` API calls
+   - Capture redacted evidence for the PR description's Verification section
+
+   Doc-only PRs are exempt. If the change is genuinely too risky to test
+   live (e.g. destructive operation on shared infrastructure), document
+   the explicit rationale in the PR description and propose an alternative
+   verification path. Deferring "verification will happen post-merge" is
+   not acceptable — that creates the PR #50 / #46 latent-bug pattern.
+
+5. **Open PR** using the PR template. Title mirrors the issue.
+6. PR description includes `Closes #N` so GitHub auto-closes the
    issue on merge.
 
 **Don't:**
@@ -115,6 +127,7 @@ For each issue:
 - Open a PR before the issue exists (except trivial typos and
   security hotfixes — see "When to deviate" below)
 - Reuse a branch for a second issue
+- Open a PR for AWS-touching code without live verification (see Step 4 above)
 
 ### Step 5: Review and iterate
 
@@ -265,8 +278,13 @@ One paragraph: what was wrong, what this PR changes.
 
 ## Verification
 How a reviewer can confirm the change works:
+- [ ] **Live-tested on AWS BEFORE this PR was opened** — apply +
+      idempotent re-run + `get_*`/`list_*` verify path. Doc-only
+      PRs are exempt; if AWS-touching code is here without live
+      verification, explain why in the PR description (not
+      acceptable: "verification post-merge").
 - [ ] Local check: `cmd to run`
-- [ ] Screenshot / output
+- [ ] Screenshot / output (redacted per AGENTS.md §5)
 - [ ] Re-run of CI
 
 ## Out of Scope
@@ -349,6 +367,7 @@ Same format as commit messages. The PR title is what shows up in
 | Using stacked PRs when issues are actually independent | Manufactures sequential dependency; blocks parallel review |
 | Ignoring `AGENTS.md` invariants in a PR | Re-litigates settled decisions; wastes reviewer time |
 | Re-discovering facts already in `AGENTS.md` §3 | Wastes time; signal to update AGENTS.md if information was unfindable |
+| **Opening a PR for AWS-touching code without live verification** | **Untested code merges; bugs surface only in production. PR #50 deferred verification on the `clientToken` fix because the script's idempotent short-circuit hid the failing path. Always live-test the actual path the change is fixing — apply + idempotent re-run + `get_*` verify — BEFORE opening the PR.** |
 
 ---
 
@@ -387,7 +406,8 @@ the rest).
 independently mergeable, each ≤ 200 lines. No stacking needed
 because no two issues had a hard sequential dependency — issue
 #10's two languages had to land together but that's *one* issue,
-not two PRs.
+not two PRs. (These were doc-only PRs, so Step 4's live-test
+requirement was exempt — see Step 4 above.)
 
 **Review (Step 5):** Each PR merged in priority order (P0 first,
 then P1, then P2, then P3). Branches auto-deleted on merge.
@@ -412,7 +432,9 @@ This workflow is the default, not a law. Reasonable exceptions:
 
 - **Trivial typo:** Fix in a small PR without filing an issue.
 - **Security hotfix:** Open the PR immediately; file the issue
-  afterward for tracking. Do not wait for triage.
+  afterward for tracking. Do not wait for triage. Live verification
+  may be deferred only if delaying the fix is more dangerous than
+  shipping unverified — document the rationale.
 - **Cohesive feature with unavoidable cross-cutting changes:** A
   single feature PR can touch multiple files if they form one
   logical unit. The test is whether a reviewer can hold the whole
@@ -428,6 +450,8 @@ This workflow is the default, not a law. Reasonable exceptions:
   the artifact.
 
 If you deviate, say so in the PR description and explain why.
+**Step 4 live-test is NOT a deviation candidate** — if it can't be
+done, document the alternative verification path with the same rigor.
 
 ---
 
@@ -471,7 +495,8 @@ This document and the templates only work if they stay accurate.
   check the other in the same PR.
 - **Anti-patterns observed in practice are signals to update the
   templates**, not nag in PR reviews. The template is the cheapest
-  enforcement mechanism.
+  enforcement mechanism. (Step 4 live-test was added in PR #N after
+  PR #50 demonstrated the gap.)
 
 ---
 
@@ -491,10 +516,14 @@ This methodology has a bidirectional lineage:
    worked example), an explicit consultation-order section, and
    a maintenance discipline.
 
-3. **Adopted back here** as this file (PR #43, May 2026), with the
+3. **Adopted back here** as this file (PR #44, May 2026), with the
    matured pattern integrated and the worked example swapped to
    our v0.2.1 audit (the parallel-PR default case) since this repo
    has not yet needed a stacked PR.
+
+4. **Step 4 live-test mandate added** here (PR #N, June 2026) after
+   PR #50 demonstrated the gap. The methodology continues to evolve
+   as gaps surface.
 
 The pattern keeps maturing as it travels between repos. If you
 take it to a third repo, do the same: adapt the worked example,
