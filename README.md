@@ -161,6 +161,10 @@ agent('Test login at https://the-internet.herokuapp.com/login. Type tomsmith/Sup
 | [Development Workflow](docs/DEVELOPMENT_WORKFLOW.md) | Issue → fix → PR methodology for contributors |
 | [Production Hardening](docs/PRODUCTION_HARDENING.md) | Design playbook for Container deploy, S3 recording, profiles, Web Bot Auth, CloudWatch alarms, online eval |
 
+## Related projects
+
+- **[agentcore-harness-builder](https://github.com/timwukp/agent-skills-best-practice/tree/main/skills/skills/agentcore-harness-builder)** — the open-source Kiro skill that captures the hard-won methodology used to build this repo, packaged for any agent (Kiro / Claude Code / Claude.ai) to drive a Harness build end-to-end. Battle-tested by building a second use case ([Quick POC UI agent](#)) against real AWS. Released as `v0.1.0` on 2026-06-14: <https://github.com/timwukp/agent-skills-best-practice/releases/tag/v0.1.0>.
+
 
 ## Cost
 
