@@ -105,32 +105,66 @@ These cost real debugging time during issues #28 (observability), #24 (memory at
 
 Discovered via schema introspection (see §7.1) in PR #47 / VERIFICATION_issue_29.md.
 
-#### 3.2.1 `optionalValue` wrapper applies only to complex structure fields
+#### 3.2.1 `optionalValue` wrapper is **per-field**, not all-structures
 
-The pattern is **type-driven**, not field-name-driven:
+> ⚠️ **Corrected against live boto3 1.43.29** — the earlier rule in this file said "all structure fields wrap with optionalValue" with `model`/`environment`/`truncation` marked *(presumed)*. Schema introspection of the actual SDK shows that's wrong: only **three** fields wrap. `model` / `environment` / `truncation` are passed **directly** and are rejected if you wrap them. Source: [`agentcore-harness-builder` skill](https://github.com/timwukp/agent-skills-best-practice/tree/main/skills/skills/agentcore-harness-builder), verified end-to-end against AWS in the Quick POC run (PR #14 in `agent-skills-best-practice`).
+
+The wrapper is **per-field**: only fields whose live shape literally contains an `optionalValue` member wrap. Verify on your installed boto3:
 
 ```python
-# ✅ correct — list/integer fields pass directly (NO wrapper)
+shape = client.meta.service_model.operation_model("UpdateHarness").input_shape
+for n, m in shape.members.items():
+    if m.type_name == "structure":
+        wraps = "optionalValue" in getattr(m, "members", {})
+        print(n, "->", "WRAPS optionalValue" if wraps else "DIRECT (no wrapper)")
+```
+
+Verified result on boto3 1.43.29:
+
+| Field | Type | optionalValue wrapper? |
+|---|---|---|
+| `memory` | structure | ✅ **WRAPS** |
+| `environmentArtifact` | structure | ✅ **WRAPS** |
+| `authorizerConfiguration` | structure | ✅ **WRAPS** |
+| `model` | structure | ❌ direct (rejects wrapper) |
+| `environment` | structure | ❌ direct (rejects wrapper) |
+| `truncation` | structure | ❌ direct (rejects wrapper) |
+| `allowedTools`, `tools`, `skills`, `systemPrompt` | list | ❌ direct |
+| `maxTokens`, `maxIterations`, `timeoutSeconds` | integer | ❌ direct |
+
+Working examples:
+
+```python
+# ✅ correct — list/integer pass directly
 control.update_harness(
     harnessId=harness_id,
-    allowedTools=["browser_*", "code_interpreter*", "skills"],   # plain list of string
-    maxTokens=65536,                                              # plain integer
-    clientToken="...",
+    allowedTools=["*"],                # see also §3.11.3 — no browser_* glob
+    maxTokens=65536,
+    clientToken=secrets.token_hex(20),
 )
 
-# ✅ correct — structure fields wrap with optionalValue
+# ✅ correct — only the three structure fields below take optionalValue
 control.update_harness(
     harnessId=harness_id,
-    memory={"optionalValue": {"agentCoreMemoryConfiguration": {...}}},  # structure
-    model={"optionalValue": {"bedrockModelConfig": {...}}},             # structure (presumed)
-    clientToken="...",
+    memory={"optionalValue": {"agentCoreMemoryConfiguration": {...}}},
+    environmentArtifact={"optionalValue": {"containerConfiguration": {"containerUri": "..."}}},
+    authorizerConfiguration={"optionalValue": {"customJWTAuthorizer": {...}}},
+    clientToken=secrets.token_hex(20),
 )
 
-# ❌ wrong — wrapping a plain field
+# ✅ correct — model / environment / truncation are passed direct (NO wrapper)
 control.update_harness(
-    allowedTools={"optionalValue": ["browser_*", "code_interpreter*"]},  # rejected
-    ...
+    harnessId=harness_id,
+    model={"bedrockModelConfig": {"modelId": "global.anthropic.claude-opus-4-8", "apiFormat": "converse_stream"}},
+    truncation={"strategy": "sliding_window", "config": {"slidingWindow": {"messagesCount": 150}}},
+    environment={"agentCoreRuntimeEnvironment": {"networkConfiguration": {"networkMode": "PUBLIC"}}},
+    clientToken=secrets.token_hex(20),
 )
+
+# ❌ wrong — wrapping a non-optionalValue field is rejected with
+#   "Unknown parameter in model: 'optionalValue', must be one of: bedrockModelConfig, ..."
+control.update_harness(harnessId=harness_id,
+    model={"optionalValue": {"bedrockModelConfig": {...}}})  # rejected
 ```
 
 **Field shape table** (from `boto3.client(...).meta.service_model.operation_model("UpdateHarness").input_shape.members`):
@@ -481,6 +515,17 @@ The agentcore_code_interpreter likely has a similar primitive expansion (not yet
 **Note:** As of issue #65 (filed when this gotcha was discovered), invoking these primitives from the agent still returns errors at the data plane layer — the primitives are visible but `browser_navigate` calls fail. Issue #65 tracks the remaining fix (likely IAM or session resource provisioning).
 
 ---
+### 3.12 Live View take/release tears down the harness automation context
+
+When an agent runs on a managed Harness with the built-in Browser tool and a human needs to complete an interactive SSO login (IAM Identity Center, MFA, OTP-by-email), there is a real, undocumented gotcha:
+
+- **Broken path:** human clicks **"Take control"** in Browser Live View, completes SSO+OTP, clicks **"Release control"**, then the agent resumes. → The agent's automation context is destroyed; subsequent calls return `Target page, context or browser has been closed` and the backend reports "not initialized / sessions gone". Reproduced across three orchestration strategies (concurrent, hands-off, signal-gated). Filed upstream: <https://github.com/aws/bedrock-agentcore-sdk-python/issues/518>.
+- **Working path (workaround):** human interacts in Live View **without** clicking Take control (types directly), AND the agent on resume **must reconnect** — re-read the current page (fresh navigate / get_text / snapshot), do **not** reuse its pre-login page handle. The authenticated session then carries over.
+
+Pair this with an **S3-signal handoff** so the agent stays hands-off the browser while the human logs in (poll an S3 flag via the shell tool only) and a long `read_timeout` (≥ 1800s) on the boto3 client so the streamed turn doesn't get killed by the default 60s read timeout.
+
+Full pattern + scripts: see `references/browser-auth.md` in the [`agentcore-harness-builder`](https://github.com/timwukp/agent-skills-best-practice/tree/main/skills/skills/agentcore-harness-builder/references/browser-auth.md) skill. This is the same pattern that drove the validated Quick POC run cited in §0 of this file's project README.
+
 
 ## 4. Repo methodology — read this before opening a PR
 
