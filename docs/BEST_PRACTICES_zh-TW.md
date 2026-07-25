@@ -172,7 +172,7 @@ agentcore invoke --harness my-agent \
 
 ### 多模型策略
 
-> **注意：** 如果未指定模型，Harness 預設使用 Claude Sonnet 4.6（`global.anthropic.claude-sonnet-4-6`）。CLI 建立專案時預設使用 Claude Sonnet 4.5（`us.anthropic.claude-sonnet-4-5-20250514-v1:0`）。
+> **注意：** 如果未指定模型，Harness 預設使用 Claude Sonnet 4.6（`global.anthropic.claude-sonnet-4-6`）。CLI 建立專案時預設使用 Claude Sonnet 4.5（`us.anthropic.claude-sonnet-4-5-20250514-v1:0`）。模型永遠是每個部署自行選擇的設定——本專案的即時示範 Harness 目前運行 `global.anthropic.claude-opus-4-8`（2026-07-25 透過一行 `UpdateHarness` 呼叫升級，無需重新部署）。
 
 | 使用案例 | 建議模型 | 原因 |
 |----------|----------|------|
