@@ -132,14 +132,22 @@
   <text class="tiny" x="960" y="420">findings + source</text>
 
   <!-- bugfix -> PR -->
-  <rect class="card" x="955" y="560" width="215" height="110" rx="12"/>
-  <circle cx="988" cy="596" r="9" fill="none" stroke="#3ecf8e" stroke-width="2.2"/>
-  <circle cx="988" cy="632" r="9" fill="none" stroke="#3ecf8e" stroke-width="2.2"/>
-  <path d="M988,605 v18" stroke="#3ecf8e" stroke-width="2.2"/>
-  <text class="title" x="1010" y="600">Auto-fix commit</text>
-  <text class="tiny" x="1010" y="617">diff applied · pushed to PR</text>
-  <text class="tiny" x="1010" y="633">re-triggers QA (capped)</text>
-  <path class="wire" d="M910,615 H949" marker-end="url(#ah)"/>
+  <rect class="card" x="955" y="540" width="215" height="76" rx="12"/>
+  <circle cx="984" cy="568" r="8" fill="none" stroke="#3ecf8e" stroke-width="2.2"/>
+  <circle cx="984" cy="594" r="8" fill="none" stroke="#3ecf8e" stroke-width="2.2"/>
+  <path d="M984,576 v10" stroke="#3ecf8e" stroke-width="2.2"/>
+  <text class="title" x="1004" y="568" font-size="13">Auto-fix commit</text>
+  <text class="tiny" x="1004" y="584">diff pushed to PR branch</text>
+  <text class="tiny" x="1004" y="599">re-triggers the workflow</text>
+  <path class="wire" d="M910,578 H949" marker-end="url(#ah)"/>
+
+  <!-- the closing link: deploy BEFORE re-test -->
+  <rect class="card" x="955" y="628" width="215" height="76" rx="12" stroke="#3ecf8e"/>
+  <path d="M978,656 l10,-12 10,12 M988,644 v24" stroke="#3ecf8e" stroke-width="2.2" fill="none"/>
+  <text class="title" x="1004" y="656" font-size="13">Deploy, then re-test</text>
+  <text class="tiny" x="1004" y="672">build &#8594; S3 &#8594; CDN invalidate &#8594; wait</text>
+  <text class="tiny" x="1004" y="687">QA re-verifies EACH prior finding</text>
+  <path class="wire" d="M1062,616 V622" marker-end="url(#ah)"/>
 
   <!-- observability strip -->
   <rect class="card" x="30" y="716" width="1140" height="40" rx="10"/>
