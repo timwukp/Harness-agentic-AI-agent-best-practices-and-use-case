@@ -527,6 +527,33 @@ Pair this with an **S3-signal handoff** so the agent stays hands-off the browser
 Full pattern + scripts: see `references/browser-auth.md` in the [`agentcore-harness-builder`](https://github.com/timwukp/agent-skills-best-practice/tree/main/skills/skills/agentcore-harness-builder/references/browser-auth.md) skill. This is the same pattern that drove the validated Quick POC run cited in §0 of this file's project README.
 
 
+### 3.13 The agent loop MUST include the deploy path (or it can never converge)
+
+The QA↔Bug-Fix feedback loop (auto-fix commit → PR re-trigger → re-test until green, capped by
+`MAX_FIX_ROUNDS`) has a failure mode that is invisible in design reviews and fatal in production:
+
+- the Bug-Fix Agent patches **the repository**;
+- the QA agent tests **the running environment** (a deployed site);
+- if nothing deploys the fix between those two steps, every re-test round sees the OLD deployment,
+  reports the same findings, burns another fix round on already-fixed code, and the loop exits as a
+  false failure after `MAX_FIX_ROUNDS`.
+
+This exact gap shipped in the first version of our own `ui-qa-agent.yml`: the repo's `deploy.yml`
+was `workflow_dispatch`-only (manual), so auto-fix commits never reached the CloudFront site the QA
+agent was testing. The loop *looked* complete — trigger, test, fix, re-trigger — and could never
+converge.
+
+**Rule: the pipe between "agent fixes the repo" and "agent tests the environment" (build → upload →
+cache invalidation → wait-until-live) is part of the loop, not an external assumption.** Put the
+deploy step inside the QA workflow itself, before the test run, and wait for propagation
+(`aws cloudfront wait invalidation-completed`) — a fast re-test against a stale CDN is the same bug
+with extra steps.
+
+Corollary — make convergence observable: pass the previous round's report to the QA agent
+(`--prior-report`) and require a per-finding verdict (`FIXED` / `STILL_FAILING`) in the output. A
+"green" run that never re-checked the specific prior findings is weak evidence; a reconciliation
+table on the PR is strong evidence.
+
 ## 4. Repo methodology — read this before opening a PR
 
 This repo's methodology has three layers:
