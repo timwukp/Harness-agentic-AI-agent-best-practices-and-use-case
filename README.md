@@ -28,10 +28,18 @@ An AI agent that navigates web applications like a human QA tester — clicking 
 
 ## Architecture
 
-```
-Developer pushes code → CI/CD triggers → UI Test Agent → Test Report → Bug-Fix Agent → PR
-         ✅                    ✅                ✅             ✅              ✅          ✅
-```
+**The loop** — every stage verified end-to-end:
+
+![High-level architecture](docs/architecture-high-level.svg)
+
+**Inside the harnesses** — how AgentCore actually runs both agents (drawn from the live harness
+configs, not aspiration): declarative JSON, managed agent loop, per-session microVMs, Browser /
+Code Interpreter tools, auto-wired Memory strategies, and git-pinned Skills from this repo:
+
+![Low-level architecture](docs/architecture-low-level.svg)
+
+The whole loop is monitored, evaluated, and optimized from the companion open-source
+[**AgentCore Agent Ops Console**](https://github.com/timwukp/bedrock-agentcore-agent-ops-console).
 
 | Stage | Status | Evidence |
 |-------|--------|----------|
