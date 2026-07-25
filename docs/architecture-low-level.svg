@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 780" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif">
+  <defs>
+    <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#5b8cff"/>
+    </marker>
+    <marker id="ah2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6.5" markerHeight="6.5" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#3a4577"/>
+    </marker>
+    <linearGradient id="logo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b8cff"/><stop offset="1" stop-color="#9d5bff"/>
+    </linearGradient>
+    <style>
+      .card { fill:#141b33; stroke:#26305a; stroke-width:1.5; }
+      .inner { fill:#1b2444; stroke:#26305a; stroke-width:1.2; }
+      .hl { fill:#1b2444; stroke:#5b8cff; stroke-width:2; }
+      .title { fill:#e7ecff; font-size:14px; font-weight:650; }
+      .sub { fill:#8592c0; font-size:11px; }
+      .tiny { fill:#8592c0; font-size:10px; }
+      .mono { fill:#8592c0; font-size:10px; font-family:ui-monospace,Menlo,monospace; }
+      .grp { fill:none; stroke:#26305a; stroke-width:1.5; stroke-dasharray:4 4; }
+      .grplabel { fill:#8592c0; font-size:11px; font-weight:600; letter-spacing:.08em; }
+      .wire { stroke:#5b8cff; stroke-width:2.5; fill:none; stroke-dasharray:7 6; animation:dash 1.1s linear infinite; }
+      .wire2 { stroke:#3a4577; stroke-width:2; fill:none; stroke-dasharray:6 5; animation:dash 1.4s linear infinite; }
+      @keyframes dash { to { stroke-dashoffset:-13; } }
+      .pulse { animation:pulse 2.4s ease-in-out infinite; }
+      @keyframes pulse { 0%,100% { opacity:.55; } 50% { opacity:1; } }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="780" fill="#0b1020" rx="14"/>
+  <text x="30" y="40" fill="#e7ecff" font-size="17" font-weight="650">Inside the harnesses — how AgentCore runs both agents (live config, not aspiration)</text>
+
+  <!-- ── caller ── -->
+  <rect class="card" x="30" y="90" width="180" height="120" rx="12"/>
+  <circle cx="70" cy="128" r="14" fill="none" stroke="#e17ec3" stroke-width="2.4"/>
+  <path d="M70,118 v10 l7,5" stroke="#e17ec3" stroke-width="2.4" fill="none"/>
+  <text class="title" x="96" y="125">GitHub Actions</text>
+  <text class="sub" x="96" y="142">OIDC role</text>
+  <text class="mono" x="46" y="172">InvokeHarness</text>
+  <text class="tiny" x="46" y="188">streamed session · runtimeSessionId</text>
+
+  <!-- ── UI TEST HARNESS group ── -->
+  <rect class="grp" x="270" y="70" width="640" height="330" rx="14"/>
+  <text class="grplabel" x="290" y="94">UI TEST AGENT — HARNESS (DECLARATIVE JSON, NO CODE)</text>
+
+  <rect class="hl" x="290" y="110" width="280" height="128" rx="10"/>
+  <rect x="306" y="128" width="28" height="28" rx="7" fill="url(#logo)" class="pulse"/>
+  <text class="title" x="346" y="139">Harness runtime</text>
+  <text class="tiny" x="346" y="156">per-session isolated microVM + fs + shell</text>
+  <text class="mono" x="306" y="182">model: claude-sonnet-4-6</text>
+  <text class="mono" x="306" y="198">maxIterations: 100 · timeout: 30m</text>
+  <text class="mono" x="306" y="214">OTEL_TRACES_SAMPLER: always_on</text>
+  <text class="tiny" x="306" y="230">AWS runs the agent loop (Strands under the hood)</text>
+
+  <!-- tools column -->
+  <rect class="inner" x="600" y="110" width="290" height="60" rx="10"/>
+  <circle cx="628" cy="140" r="13" fill="none" stroke="#3ecf8e" stroke-width="2.2"/>
+  <circle cx="628" cy="140" r="5" fill="#3ecf8e" class="pulse"/>
+  <text class="title" x="654" y="136" font-size="13">AgentCore Browser</text>
+  <text class="tiny" x="654" y="152">managed cloud Playwright — aws.browser.v1</text>
+
+  <rect class="inner" x="600" y="182" width="290" height="60" rx="10"/>
+  <path d="M620,204 l-8,8 8,8 M640,204 l8,8 -8,8" stroke="#f5b342" stroke-width="2.2" fill="none"/>
+  <text class="title" x="654" y="208" font-size="13">Code Interpreter</text>
+  <text class="tiny" x="654" y="224">sandboxed Python — writes reports to /mnt</text>
+
+  <rect class="inner" x="600" y="254" width="290" height="66" rx="10"/>
+  <path d="M614,296 a14,14 0 1 1 14,-14" fill="none" stroke="#9d5bff" stroke-width="2.2"/>
+  <circle cx="628" cy="282" r="4" fill="#9d5bff"/>
+  <text class="title" x="654" y="280" font-size="13">Memory (auto-wired)</text>
+  <text class="tiny" x="654" y="296">episodic · semantic · summarization · user-pref</text>
+  <text class="tiny" x="654" y="311">recalls past runs per actorId=ci-pipeline</text>
+
+  <rect class="inner" x="290" y="254" width="280" height="66" rx="10"/>
+  <path d="M310,278 h18 M310,290 h24 M310,302 h14" stroke="#5b8cff" stroke-width="2.4" stroke-linecap="round"/>
+  <text class="title" x="346" y="282" font-size="13">Skill (from this repo)</text>
+  <text class="mono" x="306" y="300" font-size="9">app/ui-test-agent/skills/ui-testing</text>
+  <text class="tiny" x="346" y="314">markdown domain knowledge, git-pinned</text>
+
+  <text class="tiny" x="290" y="386">harness &#8594; tools wires are declarative config — zero orchestration code maintained</text>
+
+  <!-- wires: caller -> harness, harness -> tools -->
+  <path class="wire" d="M210,150 H284" marker-end="url(#ah)"/>
+  <path class="wire2" d="M570,150 H594" marker-end="url(#ah2)"/>
+  <path class="wire2" d="M570,180 C586,188 588,200 594,207" marker-end="url(#ah2)"/>
+  <path class="wire2" d="M570,220 C590,235 588,265 594,275" marker-end="url(#ah2)"/>
+  <path class="wire2" d="M430,238 V248" marker-end="url(#ah2)"/>
+
+  <!-- ── artifacts between agents ── -->
+  <rect class="card" x="955" y="140" width="215" height="120" rx="12"/>
+  <path d="M985,168 h22 l9,9 v36 h-31 Z M1007,168 v9 h9" fill="none" stroke="#f5b342" stroke-width="2.2"/>
+  <text class="title" x="1026" y="185">Artifacts</text>
+  <text class="tiny" x="971" y="222">test-report-latest.json · summary.md</text>
+  <text class="tiny" x="971" y="238">screenshots &#8594; S3 + PR comment</text>
+  <path class="wire" d="M910,200 H949" marker-end="url(#ah)"/>
+
+  <!-- ── BUGFIX HARNESS group ── -->
+  <rect class="grp" x="270" y="440" width="640" height="250" rx="14"/>
+  <text class="grplabel" x="290" y="464">BUG-FIX AGENT — HARNESS (LEAST-PRIVILEGE VARIANT)</text>
+
+  <rect class="hl" x="290" y="480" width="280" height="128" rx="10"/>
+  <rect x="306" y="498" width="28" height="28" rx="7" fill="url(#logo)" class="pulse"/>
+  <text class="title" x="346" y="509">Harness runtime</text>
+  <text class="tiny" x="346" y="526">same managed loop, tighter budget</text>
+  <text class="mono" x="306" y="552">model: claude-sonnet-4-6</text>
+  <text class="mono" x="306" y="568">maxIterations: 30 · timeout: 10m</text>
+  <text class="mono" x="306" y="584">allowedTools: [code_interpreter]</text>
+  <text class="tiny" x="306" y="600">no browser — it only reads code and writes diffs</text>
+
+  <rect class="inner" x="600" y="480" width="290" height="60" rx="10"/>
+  <path d="M620,502 l-8,8 8,8 M640,502 l8,8 -8,8" stroke="#f5b342" stroke-width="2.2" fill="none"/>
+  <text class="title" x="654" y="506" font-size="13">Code Interpreter (only tool)</text>
+  <text class="tiny" x="654" y="522">applies findings to source · emits unified diff</text>
+
+  <rect class="inner" x="600" y="552" width="290" height="60" rx="10"/>
+  <path d="M614,594 a14,14 0 1 1 14,-14" fill="none" stroke="#9d5bff" stroke-width="2.2"/>
+  <circle cx="628" cy="580" r="4" fill="#9d5bff"/>
+  <text class="title" x="654" y="578" font-size="13">Memory: fix history</text>
+  <text class="tiny" x="654" y="594">episodic FixHistory · semantic FixPatterns</text>
+
+  <rect class="inner" x="290" y="624" width="280" height="52" rx="10"/>
+  <path d="M310,642 h18 M310,652 h24 M310,662 h14" stroke="#5b8cff" stroke-width="2.4" stroke-linecap="round"/>
+  <text class="title" x="346" y="646" font-size="13">Skill: bug-fixing</text>
+  <text class="mono" x="346" y="663" font-size="9">app/ui-test-agent/skills/bug-fixing</text>
+
+  <path class="wire2" d="M570,520 H594" marker-end="url(#ah2)"/>
+  <path class="wire2" d="M570,560 C586,568 588,575 594,580" marker-end="url(#ah2)"/>
+  <path class="wire2" d="M430,608 V618" marker-end="url(#ah2)"/>
+
+  <!-- artifacts -> bugfix -->
+  <path class="wire" d="M1062,260 C1062,430 950,480 916,505" marker-end="url(#ah)"/>
+  <text class="tiny" x="960" y="420">findings + source</text>
+
+  <!-- bugfix -> PR -->
+  <rect class="card" x="955" y="560" width="215" height="110" rx="12"/>
+  <circle cx="988" cy="596" r="9" fill="none" stroke="#3ecf8e" stroke-width="2.2"/>
+  <circle cx="988" cy="632" r="9" fill="none" stroke="#3ecf8e" stroke-width="2.2"/>
+  <path d="M988,605 v18" stroke="#3ecf8e" stroke-width="2.2"/>
+  <text class="title" x="1010" y="600">Auto-fix commit</text>
+  <text class="tiny" x="1010" y="617">diff applied · pushed to PR</text>
+  <text class="tiny" x="1010" y="633">re-triggers QA (capped)</text>
+  <path class="wire" d="M910,615 H949" marker-end="url(#ah)"/>
+
+  <!-- observability strip -->
+  <rect class="card" x="30" y="716" width="1140" height="40" rx="10"/>
+  <text class="tiny" x="46" y="741">Every session emits OTel spans &#8594; CloudWatch (Transaction Search) &#8594; scored by AgentCore Evaluations · analyzed by Insights · optimized by Recommendations — see the ops console repo</text>
+</svg>
