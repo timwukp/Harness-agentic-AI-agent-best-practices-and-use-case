@@ -210,7 +210,7 @@ All six items now have a concrete project-specific design in [`docs/PRODUCTION_H
 1. **Runtime vs Harness:** Deployed as Runtime (Strands agent) because CLI v0.14.0 doesn't support `create harness` non-interactively. Harness config (harness.json) kept as design reference. Bug-Fix Agent later deployed as Harness (`BugFixAgentHarness-<HARNESS_ID>`) demonstrating both modes.
 2. **Browser:** Uses `strands_tools.browser.AgentCoreBrowser` which connects to remote AWS Browser service (aws.browser.v1). Works locally, fails in CodeZip due to Playwright binary.
 3. **Memory:** 4 strategies configured (semantic, episodic, summarization, user_preference).
-4. **Model:** Claude Sonnet 4.5 (us.anthropic.claude-sonnet-4-5-20250514-v1:0).
+4. **Model:** Claude Opus 4.8 (`global.anthropic.claude-opus-4-8`) on both live harnesses since 2026-07-25 (upgraded from `global.anthropic.claude-sonnet-4-6` via `UpdateHarness` — one-line config change, no redeploy). Originally launched on Claude Sonnet 4.5 (us.anthropic.claude-sonnet-4-5-20250514-v1:0). The model is a per-deployment choice.
 5. **Test target:** the-internet.herokuapp.com (MIT licensed, designed for test automation).
 6. **Demo target:** `app/demo-frontend/` deployed via GitHub Pages — 5 intentional bugs for E2E pipeline verification.
 7. **Communication:** Chinese for discussion, English for code/docs.
