@@ -19,6 +19,7 @@ Read either if you want to understand the pattern, or apply it to another repo.
 A **production-ready UI Test Agent** built on Amazon Bedrock AgentCore — an AI agent that navigates web UIs like a human QA tester and reports PASS/FAIL with evidence. Plus a downstream **Bug-Fix Agent** that auto-generates patches.
 
 - Main entry point for the running agent: `app/ui-test-agent/main.py`
+- Live harness state (2026-07-25): `UITestAgentHarness` v5 and `BugFixAgentHarness` v3 both run `global.anthropic.claude-opus-4-8` (upgraded from `global.anthropic.claude-sonnet-4-6` via a one-line `UpdateHarness` — see §3.2.1's working example). The model is a per-deployment choice; anyone deploying their own copy can pick any Bedrock model.
 - Architecture: `docs/ARCHITECTURE.md`
 - AgentCore best practices: `docs/BEST_PRACTICES.md` (English) / `docs/BEST_PRACTICES_zh-TW.md`
 - How to contribute changes: `docs/DEVELOPMENT_WORKFLOW.md` ⭐ **read this before opening any PR**
