@@ -182,7 +182,7 @@ Four CloudWatch metric alarms, each with a clear action.
 |---|---|
 | Metric namespace | `AWS/Bedrock` |
 | Metric name | `InputTokens` (or `InvocationCount` if more reliable) |
-| Dimensions | `ModelId = us.anthropic.claude-sonnet-4-5-20250514-v1:0` |
+| Dimensions | `ModelId = global.anthropic.claude-opus-4-8` (must match the model your harness is configured with — a per-deployment choice) |
 | Statistic | `Sum` |
 | Period | 60 seconds |
 | Threshold | `> 50000 tokens / minute` (rough proxy for "agent stuck consuming context") |
@@ -251,7 +251,7 @@ export class UITestAgentAlarmsStack extends cdk.Stack {
         namespace: 'AWS/Bedrock',
         metricName: 'InputTokens',
         dimensionsMap: {
-          ModelId: 'us.anthropic.claude-sonnet-4-5-20250514-v1:0',
+          ModelId: 'global.anthropic.claude-opus-4-8', // keep in sync with the harness's configured model
         },
         statistic: 'Sum',
         period: cdk.Duration.seconds(60),
