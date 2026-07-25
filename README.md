@@ -44,30 +44,31 @@ The whole loop is monitored, evaluated, and optimized from the companion open-so
 | Stage | Status | Evidence |
 |-------|--------|----------|
 | CI/CD trigger (GitHub Actions) | ✅ Verified | PR triggers workflow, posts results as PR comment |
-| UI Test Agent execution | ✅ Verified | 35 tests, 17 interaction types, real browser |
-| Test Report generation | ✅ Verified | JSON + Markdown reports with screenshots |
-| Bug detection on own app | ✅ Verified | Found 2 bugs in demo frontend |
-| Bug-Fix Agent | ✅ Verified | Generated correct diff patch (deployed as Harness) |
-| Auto PR creation | ✅ Verified | Patch output ready to apply |
+| Branch deploy inside the loop | ✅ Verified | Build (with env injection) → S3 → CloudFront invalidation before every QA round |
+| UI Test Agent execution | ✅ Verified | Real browser, Cognito login, full-site exploration + cross-page value checks |
+| Test Report generation | ✅ Verified | JSON reports + screenshots published to S3 by the pipeline |
+| Bug detection on a real app | ✅ Verified | Found genuine, unseeded bugs (cost mismatches, missing pricing rows, duplicate table rows) |
+| Bug-Fix Agent | ✅ Verified | Patched findings and pushed auto-fix commits that re-trigger the loop |
+| Reconciliation (convergence) | ✅ Verified | Every prior finding re-verified each round: FIXED / STILL_FAILING table on the PR |
 
-### How Bug-Fix Agent Works
+### Live demo — real bugs on a real production app
 
-UI Test Agent found:
-> "Error message is **green** (rgb(0,128,0)) and says 'Internal server error' instead of 'Invalid username or password'"
+The loop runs against a deployed [Bedrock token-monitoring
+app](https://github.com/timwukp/Claude-code-on-AWS-Bedrock-Token-monitoring-alarm-system)
+(CloudFront + Cognito + API Gateway + Lambda) — not a toy page, and none of the bugs are seeded.
+The QA agent explores the live site, cross-checks values across pages, and the Bug-Fix agent
+patches what is genuinely patchable:
 
-Bug-Fix Agent received the failure report + source code, and generated:
+> Cost page claims "774% lower than without caching" — mathematically impossible (max saving is
+> 100%; the denominator used final cost instead of pre-cache cost). Usage page shows \$0.00 while
+> the Cost page shows \$288.93 for the same window. A model with 250M+ cache-read tokens prices
+> at \$0.00 because its pricing row is missing.
 
-```diff
-- .error-message { color: green; ... }
-+ .error-message { color: red; ... }
-
-- errorMsg.textContent = 'Internal server error. Please try again later.';
-+ errorMsg.textContent = 'Invalid username or password';
-```
-
-Both fixes are minimal, correct, and production-ready.
-
-**Demo app:** https://timwukp.github.io/Harness-agentic-AI-agent-best-practices-and-use-case/demo/
+Watch it run: **[PR #29](https://github.com/timwukp/Claude-code-on-AWS-Bedrock-Token-monitoring-alarm-system/pull/29)**
+— the full history of the loop converging (auto-fix rounds, a deploy-path gap discovered the hard
+way, reconciliation tables in the PR comments). The loop's exits are goal-driven: green when no
+blocking findings remain, early red when two consecutive rounds make zero progress (a finding the
+repo can't fix — data/env issues — is a human's job), with a round cap only as a runaway fuse.
 
 Built with:
 - **AgentCore Browser** — remote cloud Playwright (click, type, screenshot)
