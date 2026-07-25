@@ -894,7 +894,7 @@ UI Test Agent                    Bug-Fix Agent
 ```json
 {
   "name": "bug-fix-agent",
-  "model": {"bedrockModelConfig": {"modelId": "us.anthropic.claude-sonnet-4-5-20250514-v1:0"}},
+  "model": {"bedrockModelConfig": {"modelId": "global.anthropic.claude-opus-4-8"}},
   "systemPrompt": [{"text": "You are an expert frontend developer. Given test failure reports, analyze the code, identify root causes, and propose minimal fixes."}],
   "tools": [
     {"type": "agentcore_code_interpreter", "name": "code_interpreter"},
