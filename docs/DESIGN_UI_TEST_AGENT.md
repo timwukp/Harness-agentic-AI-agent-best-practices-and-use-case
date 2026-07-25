@@ -136,9 +136,9 @@ A Harness AgentCore application that replaces human QA testers in the SDLC. The 
 
 ### Model
 
-- **Default:** `us.anthropic.claude-sonnet-4-5-20250514-v1:0`
-- **Reasoning:** Best balance of vision capability (screenshot analysis), reasoning (test evaluation), and cost
-- **Override for complex UI:** Claude Opus for edge cases requiring deeper visual reasoning
+- **Live deployment (as of 2026-07-25):** `global.anthropic.claude-opus-4-8` — the live demo harnesses run Opus for maximum visual reasoning and fix quality
+- **Per-deployment choice:** the model is a one-line declarative config (`model.bedrockModelConfig.modelId`) — pick whatever fits your needs (e.g. Sonnet for lower latency/cost) and change it any time via `UpdateHarness` or a per-invoke override, no redeploy
+- **Reasoning for Opus on the live demo:** deeper visual reasoning on screenshots and higher-confidence root-cause analysis; Sonnet remains a solid default when cost/latency matter more
 
 ### System Prompt
 
