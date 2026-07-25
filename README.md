@@ -38,6 +38,11 @@ Code Interpreter tools, auto-wired Memory strategies, and git-pinned Skills from
 
 ![Low-level architecture](docs/architecture-low-level.svg)
 
+> The live demo harnesses currently run `global.anthropic.claude-opus-4-8`. The model is a
+> one-line declarative config (`model.bedrockModelConfig.modelId`) — if you deploy your own copy,
+> swap in any Bedrock model that fits your needs (Sonnet for lower latency/cost, Opus for maximum
+> capability) via `UpdateHarness`, without touching CI or redeploying code.
+
 The whole loop is monitored, evaluated, and optimized from the companion open-source
 [**AgentCore Agent Ops Console**](https://github.com/timwukp/bedrock-agentcore-agent-ops-console).
 
