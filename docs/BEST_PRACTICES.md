@@ -172,7 +172,7 @@ agentcore invoke --harness my-agent \
 
 ### Multi-Model Strategy
 
-> **Note:** The harness defaults to Claude Sonnet 4.6 (`global.anthropic.claude-sonnet-4-6`) if no model is specified. The CLI scaffolds projects with Claude Sonnet 4.5 (`us.anthropic.claude-sonnet-4-5-20250514-v1:0`).
+> **Note:** The harness defaults to Claude Sonnet 4.6 (`global.anthropic.claude-sonnet-4-6`) if no model is specified. The CLI scaffolds projects with Claude Sonnet 4.5 (`us.anthropic.claude-sonnet-4-5-20250514-v1:0`). The model is always a per-deployment choice — this repo's live demo harnesses currently run `global.anthropic.claude-opus-4-8` (upgraded 2026-07-25 via a one-line `UpdateHarness` call, no redeploy).
 
 | Use Case | Recommended Model | Why |
 |----------|-------------------|-----|
