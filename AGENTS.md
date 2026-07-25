@@ -555,6 +555,34 @@ Corollary — make convergence observable: pass the previous round's report to t
 "green" run that never re-checked the specific prior findings is weak evidence; a reconciliation
 table on the PR is strong evidence.
 
+### 3.14 Agents hand off unfixable bugs as failing tests — treat the red CI as a work contract
+
+Observed live (PR #30 of the token-monitoring demo, 2026-07-25), unprompted: the Bug-Fix Agent hit
+findings it could not fix from inside the repo — a missing pricing entry (it doesn't know real
+rates and refused to invent them) and a data-layer dedup rule. Instead of skipping them or
+hallucinating values, it **wrote failing guard tests that pin the correct behavior**:
+
+- `matchRate('fable-5') must return a non-zero rate (pricing entry must exist)` — red until a
+  human added the real \$10/\$50 per-MTok rates;
+- `summarizeCosts merges ARN-vs-bare-id duplicate rows and drops zero-usage rows` — red until the
+  dedup logic was implemented to that exact spec.
+
+That is test-driven development used as an **agent→human handoff protocol**: the failing test is a
+machine-checkable requirements doc. The human contribution (real pricing data, a product decision)
+plugs into a contract the agent already wrote, and `jest` answers "did I satisfy it?" — no
+re-review by the agent needed.
+
+Two rules that fall out of this:
+
+1. **Don't "fix" a red CI by deleting an agent-authored test.** First check whether it encodes a
+   real requirement the agent couldn't satisfy alone (ours did, both times). Delete only when the
+   test asserts something that genuinely doesn't exist (we also saw that once: a test for a
+   nonexistent `ContainmentDecision.timestamp` field — invented, not pinned).
+2. **Prompt for it.** If you want this behavior reliably, add to the bug-fix agent's instructions:
+   "If a finding needs data or a decision you don't have, write a failing test that specifies the
+   correct behavior instead of guessing." Stronger models (Opus-tier and above) do this
+   spontaneously; weaker ones need the nudge.
+
 ## 4. Repo methodology — read this before opening a PR
 
 This repo's methodology has three layers:
