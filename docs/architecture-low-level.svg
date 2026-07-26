@@ -47,7 +47,7 @@
   <rect x="306" y="128" width="28" height="28" rx="7" fill="url(#logo)" class="pulse"/>
   <text class="title" x="346" y="139">Harness runtime</text>
   <text class="tiny" x="346" y="156">per-session isolated microVM + fs + shell</text>
-  <text class="mono" x="306" y="182">model: claude-opus-4-8</text>
+  <text class="mono" x="306" y="182">model: claude-fable-5</text>
   <text class="mono" x="306" y="198">maxIterations: 100 · timeout: 30m</text>
   <text class="mono" x="306" y="214">OTEL_TRACES_SAMPLER: always_on</text>
   <text class="tiny" x="306" y="230">AWS runs the agent loop (Strands under the hood)</text>
@@ -102,7 +102,7 @@
   <rect x="306" y="498" width="28" height="28" rx="7" fill="url(#logo)" class="pulse"/>
   <text class="title" x="346" y="509">Harness runtime</text>
   <text class="tiny" x="346" y="526">same managed loop, tighter budget</text>
-  <text class="mono" x="306" y="552">model: claude-opus-4-8</text>
+  <text class="mono" x="306" y="552">model: claude-fable-5</text>
   <text class="mono" x="306" y="568">maxIterations: 30 · timeout: 10m</text>
   <text class="mono" x="306" y="584">allowedTools: [code_interpreter]</text>
   <text class="tiny" x="306" y="600">no browser — it only reads code and writes diffs</text>

@@ -583,6 +583,50 @@ Two rules that fall out of this:
    correct behavior instead of guessing." Stronger models (Opus-tier and above) do this
    spontaneously; weaker ones need the nudge.
 
+### 3.15 The model ladder changes agent *behavior*, not just quality — and each rung has a capacity chain
+
+Observed across one PR's fix rounds (token-monitoring demo PR #30, 2026-07-25/26), same harness,
+same prompts, three models:
+
+| Model | QA output | Bug-Fix behavior |
+|---|---|---|
+| `sonnet-4-6` | Prose endings needing salvage parsing | Overeager: claimed 10/15 findings "fixed", several wrongly |
+| `opus-4-8` | Clean JSON | Honest 1/6: patched what it could, refused data-layer issues |
+| `fable-5` | Best-in-class: 9-finding reconciliation tables with partial-fix granularity | 2/8 patched + 6 honest no-diffs; wrote failing guard tests as handoff (§3.14) |
+
+Two operational consequences:
+
+1. **Upgrading the model changes the failure modes you must handle.** Salvage parsing exists
+   because of sonnet-tier prose; the honest-refusal → failing-test handoff (§3.14) appears at
+   opus-tier and above. Pipeline code written for one rung silently mismatches another.
+2. **Each stronger model needs a longer capacity chain, discovered by hitting each limit in
+   sequence.** For fable-5 that chain was: botocore `read_timeout` 60s→900s, harness `maxTokens`
+   32k→131072, harness `timeoutSeconds` 600→1800/3600, workflow job `timeout-minutes` 35→120,
+   plus salvaging partial streams and per-finding try/except so one failed invoke doesn't drop
+   earlier patches. Budget a "raise every limit on the path" pass when moving up a rung.
+
+Model updates go through `update_harness` partial update (only passed fields change — env vars
+survive a model-only update): `model={bedrockModelConfig:{modelId, apiFormat:'converse_stream'}}`.
+
+### 3.16 An empty findings array is a PASS, not a missing report — salvage fallbacks can fabricate failure
+
+The final two "red" rounds of the same PR #30 loop were caused by the CI parser, after the app was
+actually green. The chain:
+
+- QA agent correctly returned `{"overall": "PASS", "findings": [], "reconciliation": [... FIXED]}`;
+- the parser gated on `not report.get("findings")` — which is `True` for BOTH "no report" and
+  "explicitly zero findings" — and concluded the agent hadn't reported;
+- it fell through to a transcript-salvage heuristic (regex for words like *diverged / mismatch*),
+  which matched the transcript's **description of the already-fixed finding** and fabricated a
+  phantom HIGH finding;
+- the Bug-Fix agent was then dispatched against a bug that no longer existed, produced no diff
+  (`git apply: No valid patches in input`), and the round exited red.
+
+**Rule: distinguish "agent reported nothing wrong" from "agent didn't report".** Gate on key
+presence (`"findings" not in report`), never on emptiness. And any salvage/fallback path that
+*generates* findings from prose must be unreachable when a well-formed report exists — otherwise
+your recovery code converts success into failure precisely at the moment the loop finally wins.
+
 ## 4. Repo methodology — read this before opening a PR
 
 This repo's methodology has three layers:
