@@ -134,12 +134,13 @@ patches what is genuinely patchable:
 > the Cost page shows \$288.93 for the same window. A model with 250M+ cache-read tokens prices
 > at \$0.00 because its pricing row is missing.
 
-**Watch it run:** two PRs tell the story. **[PR #29](https://github.com/timwukp/Claude-code-on-AWS-Bedrock-Token-monitoring-alarm-system/pull/29)** is the first attempt: three
-auto-fix rounds burned before the deploy step was inside the loop, so every re-test saw the old site
-(the gap described in [AGENTS.md §3.13](AGENTS.md#313-the-agent-loop-must-include-the-deploy-path-or-it-can-never-converge)).
-**[PR #30](https://github.com/timwukp/Claude-code-on-AWS-Bedrock-Token-monitoring-alarm-system/pull/30)** is the goal-driven successor that converged and was merged on 2026-07-26:
-9 → 5 → 4 → 1 → 0 blocking findings over 10 auto-fix rounds, with human fixes alongside (14 human
-app-fix commits next to the agent's 10 rounds). The loop's exits are goal-driven: green when no
+**Watch it run:** two PRs tell the story. **[PR #29](https://github.com/timwukp/Claude-code-on-AWS-Bedrock-Token-monitoring-alarm-system/pull/29)** is the first attempt: its three
+auto-fix rounds ran before the deploy step was inside the loop, so the early re-tests checked the old
+site (the gap described in [AGENTS.md §3.13](AGENTS.md#313-the-agent-loop-must-include-the-deploy-path-or-it-can-never-converge)); once the deploy was added, the build was missing
+its environment and sign-in broke. **[PR #30](https://github.com/timwukp/Claude-code-on-AWS-Bedrock-Token-monitoring-alarm-system/pull/30)** is the goal-driven successor, merged on
+2026-07-26. Its convergence comment reports 9 → 5 → 4 → 1 → 0 blocking findings over 10 auto-fix
+rounds; the Bug-Fix agent patched 33 of the 62 findings it attempted, with human fixes alongside.
+The loop's exits are goal-driven: green when no
 blocking findings remain, early red when two consecutive rounds make zero progress (a finding the
 repo can't fix — data/env issues — is a human's job), with a round cap only as a runaway fuse.
 
