@@ -1,30 +1,39 @@
 #!/usr/bin/env python3
 """
-Issue #29: Tighten allowedTools whitelist + set maxTokens + add tags on both harnesses.
+Keep UITestAgentHarness and BugFixAgentHarness on a known-good tool allow-list,
+limits and tags (issue #29, corrected by issue #75).
 
-Three production-hygiene config items applied to UITestAgentHarness and
-BugFixAgentHarness, applied via:
-  - update_harness(allowedTools=[...], maxTokens=N)  -- for tools whitelist + token cap
-  - tag_resource(resourceArn=..., tags={...})        -- for tags (UpdateHarness has no tags field)
+Managed fields:
+  - allowedTools, maxTokens, maxIterations, timeoutSeconds -> update_harness (partial update)
+  - tags                                                    -> tag_resource (UpdateHarness has no tags field)
 
-Discovery findings (recorded in AGENTS.md §3.2 candidate addition):
-  - allowedTools / maxTokens are PLAIN list/integer (NO optionalValue wrapper)
-  - Only complex structure fields (memory, model, environment) use optionalValue
-  - UpdateHarness lacks tags; must call TagResource separately
-  - clientToken min length is 33 chars; secrets.token_hex(20) gives 40 chars (safe)
+DESIRED is the configuration the live harnesses were running when they last worked
+(UITestAgentHarness v8, BugFixAgentHarness v7, read 2026-11-27). The earlier DESIRED
+(UI allowedTools ["browser", "code_interpreter"], BugFix maxTokens 32768,
+environment=production) would have narrowed the UI agent's tools and cut the Bug-Fix
+agent's output budget to a quarter, so this script now refuses any change that removes
+a tool or lowers a limit unless you pass --allow-narrowing.
 
-Idempotent: re-running detects matching state and exits 0 with no API mutations.
+Payload facts (AGENTS.md §3.2):
+  - allowedTools / maxTokens / maxIterations / timeoutSeconds are plain list/integer (no optionalValue wrapper)
+  - UpdateHarness has no tags field; TagResource is a separate call
+  - clientToken min length is 33 chars; secrets.token_hex(20) gives 40
 
 Requires boto3 >= 1.43.18 (older versions silently lack update_harness / tag_resource).
 
 Usage:
-  python tighten_harness_config.py [--region us-east-1] [--dry-run]
+  python tighten_harness_config.py --dry-run                  # print live vs desired; change nothing
+  python tighten_harness_config.py                            # apply; environment tag defaults to "dev"
+  python tighten_harness_config.py --environment staging      # apply with another environment tag
+  python tighten_harness_config.py --allow-narrowing          # also apply changes that remove tools / lower limits
 
 Exit codes:
-  0  Both harnesses already match desired state, OR all updates succeeded
-  1  Discovery failed (harness not found)
+  0  no drift, or every update applied
+  1  a harness was not found
   2  boto3 too old (< 1.43.18)
   3  update_harness or tag_resource failed
+  4  dry run: drift found, none of it narrows tools or lowers a limit
+  5  a change would remove tools or lower a limit (dry run: reported; apply: refused unless --allow-narrowing)
 """
 from __future__ import annotations
 
@@ -47,24 +56,53 @@ MIN_BOTO3 = (1, 43, 18)
 MAX_POLL_SECONDS = 120
 POLL_INTERVAL = 5
 
-# Desired config per harness — tune here, not via CLI
+CONFIG_FIELDS = ("allowedTools", "maxTokens", "maxIterations", "timeoutSeconds")
+LIMIT_FIELDS = ("maxTokens", "maxIterations", "timeoutSeconds")
+
+# Desired config per harness. Tune here, not via CLI (except the environment tag).
+#
+# UITestAgentHarness allowedTools = ["*"]. The narrower forms are not safe here:
+#   - Its last six sessions (2026-10-29..30, aws/spans) were offered
+#     shell, file_operations, browser, code_interpreter, skills and called
+#     browser 377x, shell 36x, code_interpreter 16x.
+#   - `shell` is how the agent reads the login secret: the AWS-managed Code Interpreter
+#     has no AWS credentials (NoCredentialsError), the harness runtime has the execution role.
+#     ["browser", "code_interpreter"] and ["browser_*", "code_interpreter*", "skills"]
+#     both drop `shell`, so login would fail.
+#   - The runtime tool is named `browser`, which a `browser_*` glob does not match.
+#   Narrowing below "*" needs its own live test that keeps `shell`.
+#
+# BugFixAgentHarness allowedTools = ["code_interpreter"], unchanged from live. The
+# orchestrator (ci-agent/bugfix_agent.py) puts the source in the prompt and reads the diff
+# from the reply, so the fix path uses no tool. AGENTS.md §3.11.3 says a plain name filters
+# declared tools out; whether that holds for this harness has not been observed (its spans
+# are past the 30-day retention). Check `gen_ai.agent.tools` on the next Bug-Fix invoke span
+# before changing it.
+#
+# Limits are sized for the model in `sized_for_model` (both models cap output at 128K tokens;
+# AGENTS.md §3.15 has the capacity chain). If the live model differs, the script warns:
+# re-size the limits before applying.
 DESIRED = {
     "UITestAgentHarness": {
-        "allowedTools": ["browser", "code_interpreter"],
+        "sized_for_model": "global.anthropic.claude-sonnet-5-5",
+        "allowedTools": ["*"],
         "maxTokens": 65536,
+        "maxIterations": 100,
+        "timeoutSeconds": 3600,
         "tags": {
             "team": "qa-platform",
-            "environment": "production",
             "cost-center": "engineering",
             "agent-type": "ui-test",
         },
     },
     "BugFixAgentHarness": {
+        "sized_for_model": "global.anthropic.claude-opus-5-5",
         "allowedTools": ["code_interpreter"],
-        "maxTokens": 32768,
+        "maxTokens": 131072,
+        "maxIterations": 30,
+        "timeoutSeconds": 1800,
         "tags": {
             "team": "qa-platform",
-            "environment": "production",
             "cost-center": "engineering",
             "agent-type": "bug-fix",
         },
@@ -94,89 +132,84 @@ def redact(s: str) -> str:
 
 
 def find_harness(client: Any, name: str) -> dict | None:
-    """Return harness summary by name, or None if not found."""
-    for h in client.list_harnesses().get("harnesses", []):
-        if h.get("harnessName") == name:
-            return h
-    return None
+    """Return harness summary by name, or None if not found. Follows nextToken."""
+    kwargs: dict[str, Any] = {}
+    while True:
+        page = client.list_harnesses(**kwargs)
+        for h in page.get("harnesses", []):
+            if h.get("harnessName") == name:
+                return h
+        token = page.get("nextToken")
+        if not token:
+            return None
+        kwargs["nextToken"] = token
 
 
-def update_config_if_needed(client: Any, harness: dict, desired: dict, dry_run: bool) -> bool:
-    """
-    Check current config vs desired; call update_harness only if drift exists.
-    Returns True if drift detected (whether applied or not).
-    """
-    detail = client.get_harness(harnessId=harness["harnessId"])["harness"]
-    cur_tools = detail.get("allowedTools") or []
-    cur_max = detail.get("maxTokens")
+def classify(field: str, live: Any, desired: Any) -> str:
+    """same | set | raise | widen | change | LOWER | NARROW. Upper-case verdicts are regressions."""
+    if field == "allowedTools":
+        cur, want = set(live or []), set(desired)
+        if cur == want:
+            return "same"
+        if not cur:
+            return "set"
+        if "*" in want:
+            return "widen"
+        if cur - want:
+            # Any entry removed (including "*" replaced by a list) can remove a tool the agent uses.
+            return "NARROW"
+        return "widen"
+    if live is None:
+        return "set"
+    if desired == live:
+        return "same"
+    if field in LIMIT_FIELDS:
+        return "LOWER" if desired < live else "raise"
+    return "change"
 
-    needs_tools = sorted(cur_tools) != sorted(desired["allowedTools"])
-    needs_max = cur_max != desired["maxTokens"]
 
-    if not (needs_tools or needs_max):
-        print(f"  ✓ allowedTools + maxTokens already match desired (no update)")
-        print(f"    allowedTools: {cur_tools}  maxTokens: {cur_max}")
-        return False
+def plan_for(detail: dict, desired: dict) -> list[tuple[str, Any, Any, str]]:
+    return [(f, detail.get(f), desired[f], classify(f, detail.get(f), desired[f])) for f in CONFIG_FIELDS]
 
+
+def tag_plan(current: dict, desired_tags: dict) -> list[tuple[str, Any, Any, str]]:
+    rows = []
+    for k, v in desired_tags.items():
+        cur = current.get(k)
+        rows.append((f"tag {k}", cur, v, "same" if cur == v else ("set" if cur is None else "change")))
+    return rows
+
+
+def print_rows(rows: list[tuple[str, Any, Any, str]]) -> None:
+    print(f"  {'field':<20} {'live':<24} {'desired':<24} verdict")
+    for field, live, want, verdict in rows:
+        live_s = "<absent>" if live is None else repr(live)
+        print(f"  {field:<20} {live_s:<24} {want!r:<24} {verdict}")
+
+
+def apply_config(client: Any, harness_id: str, rows: list[tuple[str, Any, Any, str]]) -> None:
     payload: dict[str, Any] = {
-        "harnessId": harness["harnessId"],
+        "harnessId": harness_id,
         "clientToken": secrets.token_hex(20),  # 40 chars; min validated length is 33
     }
-    diffs = []
-    if needs_tools:
-        payload["allowedTools"] = desired["allowedTools"]
-        diffs.append(f"allowedTools: {cur_tools} → {desired['allowedTools']}")
-    if needs_max:
-        payload["maxTokens"] = desired["maxTokens"]
-        diffs.append(f"maxTokens: {cur_max} → {desired['maxTokens']}")
-
-    print(f"  → drift detected:")
-    for d in diffs:
-        print(f"      {d}")
-
-    if dry_run:
-        print(f"  DRY RUN: would call update_harness({list(payload.keys())})")
-        return True
-
+    for field, _, want, verdict in rows:
+        if verdict != "same":
+            payload[field] = want
     try:
         client.update_harness(**payload)
-        print(f"  ✓ update_harness HTTP 200")
+        print(f"  ✓ update_harness HTTP 200 ({[k for k in payload if k not in ('harnessId', 'clientToken')]})")
     except botocore.exceptions.ClientError as e:
         print(f"ERROR: update_harness failed: {redact(str(e))}", file=sys.stderr)
         sys.exit(3)
-    return True
 
 
-def tag_resource_if_needed(client: Any, harness: dict, desired_tags: dict, dry_run: bool) -> bool:
-    """
-    Apply tags via tag_resource if current tags don't match.
-    Idempotent: tag_resource overwrites/merges keys.
-    """
-    arn = harness["arn"]
-    current = client.list_tags_for_resource(resourceArn=arn).get("tags", {}) or {}
-
-    needs_tags = any(current.get(k) != v for k, v in desired_tags.items())
-    if not needs_tags:
-        print(f"  ✓ all {len(desired_tags)} tags already match (no update)")
-        return False
-
-    missing_or_wrong = {k: v for k, v in desired_tags.items() if current.get(k) != v}
-    print(f"  → {len(missing_or_wrong)} tag(s) need update:")
-    for k, v in missing_or_wrong.items():
-        cur_v = current.get(k, "<absent>")
-        print(f"      {k}: {cur_v!r} → {v!r}")
-
-    if dry_run:
-        print(f"  DRY RUN: would call tag_resource(resourceArn=..., tags={list(missing_or_wrong.keys())})")
-        return True
-
+def apply_tags(client: Any, arn: str, desired_tags: dict) -> None:
     try:
-        client.tag_resource(resourceArn=arn, tags=desired_tags)
+        client.tag_resource(resourceArn=arn, tags=desired_tags)  # merges; tags not listed here are kept
         print(f"  ✓ tag_resource HTTP 200")
     except botocore.exceptions.ClientError as e:
         print(f"ERROR: tag_resource failed: {redact(str(e))}", file=sys.stderr)
         sys.exit(3)
-    return True
 
 
 def poll_until_ready(client: Any, harness_id: str) -> None:
@@ -198,47 +231,86 @@ def poll_until_ready(client: Any, harness_id: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--region", default="us-east-1")
-    parser.add_argument("--dry-run", action="store_true", help="Print planned changes without mutating")
+    parser.add_argument("--environment", default="dev",
+                        help="Value of the `environment` tag on both harnesses (default: dev)")
+    parser.add_argument("--dry-run", action="store_true", help="Print live vs desired without mutating")
+    parser.add_argument("--allow-narrowing", action="store_true",
+                        help="Apply changes that remove tools or lower a limit (refused by default)")
     args = parser.parse_args()
+    if not args.environment.strip():
+        parser.error("--environment must not be empty")
 
     check_boto3_version()
     print(f"boto3 {boto3.__version__} OK")
-    print(f"Region:  {args.region}")
-    print(f"Account: <ACCOUNT_ID>")
-    print(f"Mode:    {'DRY RUN' if args.dry_run else 'APPLY'}\n")
+    print(f"Region:      {args.region}")
+    print(f"Account:     <ACCOUNT_ID>")
+    print(f"Environment: {args.environment}")
+    print(f"Mode:        {'DRY RUN' if args.dry_run else 'APPLY'}\n")
 
     session = boto3.Session(region_name=args.region)
     session.client("sts").get_caller_identity()  # validates creds
     control = session.client("bedrock-agentcore-control")
 
-    any_changed = False
+    missing, any_drift, regressions = [], False, []
     for name, desired in DESIRED.items():
         print(f"=== {name} ===")
         harness = find_harness(control, name)
         if not harness:
-            print(f"  ✗ not found — skipping")
+            print(f"  ✗ not found")
+            missing.append(name)
+            print()
             continue
-        print(f"  arn:    {redact(harness['arn'])}")
-        print(f"  status: {harness['status']}")
+        detail = control.get_harness(harnessId=harness["harnessId"])["harness"]
+        model = (detail.get("model") or {}).get("bedrockModelConfig", {}).get("modelId")
+        print(f"  arn:     {redact(harness['arn'])}")
+        print(f"  version: {detail.get('harnessVersion')}   status: {detail.get('status')}")
+        print(f"  model:   {model}")
+        if model != desired["sized_for_model"]:
+            print(f"  ⚠ limits below were sized for {desired['sized_for_model']}; re-size them before applying "
+                  f"(AGENTS.md §3.15)")
 
-        config_changed = update_config_if_needed(control, harness, desired, args.dry_run)
-        if config_changed and not args.dry_run:
+        rows = plan_for(detail, desired)
+        tags = {**desired["tags"], "environment": args.environment}
+        current_tags = control.list_tags_for_resource(resourceArn=harness["arn"]).get("tags", {}) or {}
+        trows = tag_plan(current_tags, tags)
+        print_rows(rows + trows)
+
+        config_drift = any(v != "same" for *_, v in rows)
+        tag_drift = any(v != "same" for *_, v in trows)
+        bad = [(name, f, v) for f, _, _, v in rows if v in ("LOWER", "NARROW")]
+        regressions += bad
+        any_drift = any_drift or config_drift or tag_drift
+
+        if args.dry_run:
+            print()
+            continue
+        if bad and not args.allow_narrowing:
+            print(f"  ✗ refused: {', '.join(f'{f} {v}' for _, f, v in bad)} (pass --allow-narrowing to apply)")
+            print()
+            continue
+        if config_drift:
+            apply_config(control, harness["harnessId"], rows)
             poll_until_ready(control, harness["harnessId"])
-
-        tags_changed = tag_resource_if_needed(control, harness, desired["tags"], args.dry_run)
-        any_changed = any_changed or config_changed or tags_changed
+        if tag_drift:
+            apply_tags(control, harness["arn"], tags)
+        if not (config_drift or tag_drift):
+            print(f"  ✓ no changes needed")
         print()
 
+    print(f"regressions: {len(regressions)}" + (f" ({', '.join(f'{n}.{f} {v}' for n, f, v in regressions)})"
+                                                 if regressions else ""))
+    if missing:
+        print(f"✗ not found: {', '.join(missing)} — nothing was checked for them", file=sys.stderr)
+        return 1
+    if regressions and (args.dry_run or not args.allow_narrowing):
+        return 5
     if args.dry_run:
-        if any_changed:
-            print("⚠ Dry run complete — drifts detected. Re-run without --dry-run to apply.")
-        else:
-            print("✓ Dry run complete — both harnesses already match desired config.")
-    else:
-        if any_changed:
-            print("✓ All applicable updates applied successfully")
-        else:
-            print("✓ No changes needed — both harnesses match desired config (idempotent re-run safe)")
+        if any_drift:
+            print("⚠ Dry run: drift found (no tool removed, no limit lowered). Re-run without --dry-run to apply.")
+            return 4
+        print("✓ Dry run: both harnesses match the desired config.")
+        return 0
+    print("✓ Done" if any_drift else "✓ No changes needed (idempotent re-run safe)")
     return 0
 
 
