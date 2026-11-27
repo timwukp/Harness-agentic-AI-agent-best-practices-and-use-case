@@ -18,7 +18,7 @@
 
 https://github.com/user-attachments/assets/e25d7708-1a75-49f5-ad90-7f7797c11306
 
-A full walkthrough of the autonomous QA loop running against a **live production app** — no slides, no mock data. Every number on screen is read from the real AWS account. ([Also on the wiki](https://github.com/timwukp/Harness-agentic-AI-agent-best-practices-and-use-case/wiki).)
+A full walkthrough of the autonomous QA loop running against a **live dev environment** — no slides, no mock data. Every number on screen is read from the real AWS account. ([Also on the wiki](https://github.com/timwukp/Harness-agentic-AI-agent-best-practices-and-use-case/wiki).)
 
 | | Chapter | What you see |
 |---:|---|---|
@@ -47,7 +47,7 @@ A full walkthrough of the autonomous QA loop running against a **live production
 
 - [What this does](#what-this-does)
 - [Architecture](#architecture)
-- [Live demo — real bugs on a real production app](#live-demo--real-bugs-on-a-real-production-app)
+- [Live demo — real bugs on a real dev environment](#live-demo--real-bugs-on-a-real-dev-environment)
 - [Deployment modes: Runtime vs. Harness](#deployment-modes-runtime-vs-harness)
 - [Quick start](#quick-start)
 - [Project structure](#project-structure)
@@ -121,7 +121,7 @@ The whole loop is monitored, evaluated, and optimized from the companion open-so
 
 ---
 
-## Live demo — real bugs on a real production app
+## Live demo — real bugs on a real dev environment
 
 The loop runs against a deployed [Bedrock token-monitoring
 app](https://github.com/timwukp/Claude-code-on-AWS-Bedrock-Token-monitoring-alarm-system)
