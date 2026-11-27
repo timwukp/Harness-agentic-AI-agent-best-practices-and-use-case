@@ -99,7 +99,8 @@ An AI agent that navigates web applications like a human QA tester — clicking 
 
 ![Low-level architecture](docs/architecture-low-level.svg)
 
-> The live demo harnesses currently run `global.anthropic.claude-opus-4-8`. The model is a
+> As of 2026-11-27, the live demo harnesses run `global.anthropic.claude-sonnet-5-5` (UI Test Agent)
+> and `global.anthropic.claude-opus-5-5` (Bug-Fix Agent). The model is a
 > one-line declarative config (`model.bedrockModelConfig.modelId`) — if you deploy your own copy,
 > swap in any Bedrock model that fits your needs (Sonnet for lower latency/cost, Opus for maximum
 > capability) via `UpdateHarness`, without touching CI or redeploying code.
