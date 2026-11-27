@@ -8,11 +8,16 @@ Managed fields:
   - tags                                                    -> tag_resource (UpdateHarness has no tags field)
 
 DESIRED is the configuration the live harnesses were running when they last worked
-(UITestAgentHarness v8, BugFixAgentHarness v7, read 2026-11-27). The earlier DESIRED
-(UI allowedTools ["browser", "code_interpreter"], BugFix maxTokens 32768,
+(UITestAgentHarness v8, BugFixAgentHarness v7, read 2026-11-27), except the UI agent's
+allowedTools: "*" is replaced by the six tools a QA run uses (issue #80). The earlier
+DESIRED (UI allowedTools ["browser", "code_interpreter"], BugFix maxTokens 32768,
 environment=production) would have narrowed the UI agent's tools and cut the Bug-Fix
-agent's output budget to a quarter, so this script now refuses any change that removes
+agent's output budget to a quarter, so this script refuses any change that removes
 a tool or lowers a limit unless you pass --allow-narrowing.
+
+allowedTools entries of the form "@{<tool type>}" are resolved per harness to "@<name>"
+of each configured tool of that type (a configured tool is selected by its tools[].name,
+which differs per deployment).
 
 Payload facts (AGENTS.md §3.2):
   - allowedTools / maxTokens / maxIterations / timeoutSeconds are plain list/integer (no optionalValue wrapper)
@@ -34,6 +39,7 @@ Exit codes:
   3  update_harness or tag_resource failed
   4  dry run: drift found, none of it narrows tools or lowers a limit
   5  a change would remove tools or lower a limit (dry run: reported; apply: refused unless --allow-narrowing)
+  6  DESIRED names a tool type ("@{<type>}") that a harness has not configured; nothing applied to it
 """
 from __future__ import annotations
 
@@ -53,7 +59,9 @@ except ImportError:
 
 
 MIN_BOTO3 = (1, 43, 18)
-MAX_POLL_SECONDS = 120
+# update_harness took 223-238 s to reach READY on a copy of UITestAgentHarness (6 updates,
+# 2026-11-27). At 120 s the apply reported a timeout (exit 3) while the update was still running.
+MAX_POLL_SECONDS = 600
 POLL_INTERVAL = 5
 
 CONFIG_FIELDS = ("allowedTools", "maxTokens", "maxIterations", "timeoutSeconds")
@@ -61,26 +69,37 @@ LIMIT_FIELDS = ("maxTokens", "maxIterations", "timeoutSeconds")
 
 # Desired config per harness. Tune here, not via CLI (except the environment tag).
 #
-# UITestAgentHarness allowedTools = ["*"]. The narrower forms are not safe here:
-#   - Its last six sessions (2026-10-29..30, aws/spans) were offered
-#     shell, file_operations, browser, code_interpreter, skills and called
-#     browser 377x, shell 36x, code_interpreter 16x.
-#   - `shell` is how the agent reads the login secret: the AWS-managed Code Interpreter
-#     has no AWS credentials (NoCredentialsError), the harness runtime has the execution role.
-#     ["browser", "code_interpreter"] and ["browser_*", "code_interpreter*", "skills"]
-#     both drop `shell`, so login would fail.
-#   - The runtime tool is named `browser`, which a `browser_*` glob does not match.
-#   - On 2026-11-27 the same "*" (harness still v8) offered shell, read, write, edit,
-#     web_fetch, browser, code_interpreter, subagent, retrieve_context, skills, todo_write:
-#     the platform's built-in set grows without a harness update.
-#   Narrowing below "*" needs its own live test that keeps `shell`.
+# UITestAgentHarness allowedTools: a fixed list instead of "*" (issue #80).
+#   - "*" means the platform's current recommended built-in set, and that set grows. The same
+#     harness version (v8) was offered shell, file_operations, browser, code_interpreter, skills
+#     on 2026-10-29/30, and on 2026-11-27 also web_fetch, subagent and todo_write, with
+#     file_operations split into read, write and edit.
+#   - Tools a QA run calls, from aws/spans (11 sessions, 2026-10-29..11-27): browser 572,
+#     shell 60, code_interpreter 23, retrieve_context 6, skills 3, read 3. Kept:
+#       shell             reads the login secret (the AWS-managed Code Interpreter has no AWS
+#                         credentials; the harness runtime has the execution role)
+#       read              returns a saved screenshot as an image the model can look at
+#       retrieve_context  reads back a tool result over ~1,500 tokens that the harness moved out
+#                         of context (it is not Memory)
+#       skills            loads ui-testing/SKILL.md
+#       browser, code_interpreter
+#   - Dropped (0 calls in the 5 sessions that were offered them): web_fetch, subagent (a child
+#     agent that gets shell and web_fetch), write, edit, todo_write.
+#   - A plain name matches built-in tools only. A configured tool is selected as
+#     "@<its tools[].name>", and that name differs per deployment ("browser" in
+#     app/ui-test-agent/deploy_harness.py, "aws_browser_v1" on the live harness). So
+#     "@{<tool type>}" below is resolved from the harness's own tools list.
+#   - `shell` still reaches the network (network mode PUBLIC), so this list removes the
+#     dedicated fetch and delegation tools and stops the set from growing. It does not close
+#     exfiltration.
 #
 # BugFixAgentHarness allowedTools = ["code_interpreter"], unchanged from live. The
 # orchestrator (ci-agent/bugfix_agent.py) puts the source in the prompt and reads the diff
 # from the reply, so the fix path uses no tool. As AGENTS.md §3.11.3 says, the plain name
 # filters the declared tool out: on 2026-11-27 the invoke span's `gen_ai.agent.tools` was
 # ["skills"] (the code interpreter is declared as `code_interpreter_1`), and the fix still
-# applied. Adding `code_interpreter*` widens the agent's tools and needs its own test.
+# applied. Selecting it takes "@code_interpreter_1" (a `code_interpreter*` glob matches
+# nothing, issue #80); that widens the agent's tools and needs its own test.
 #
 # Limits are sized for the model in `sized_for_model` (both models cap output at 128K tokens;
 # AGENTS.md §3.15 has the capacity chain). If the live model differs, the script warns:
@@ -88,7 +107,8 @@ LIMIT_FIELDS = ("maxTokens", "maxIterations", "timeoutSeconds")
 DESIRED = {
     "UITestAgentHarness": {
         "sized_for_model": "global.anthropic.claude-sonnet-5-5",
-        "allowedTools": ["*"],
+        "allowedTools": ["shell", "read", "retrieve_context", "skills",
+                         "@{agentcore_browser}", "@{agentcore_code_interpreter}"],
         "maxTokens": 65536,
         "maxIterations": 100,
         "timeoutSeconds": 3600,
@@ -132,6 +152,29 @@ def redact(s: str) -> str:
     s = re.sub(r"\b\d{12}\b", "<ACCOUNT_ID>", s)
     s = re.sub(r"-[a-zA-Z0-9]{10}\b", "-<ID>", s)
     return s
+
+
+TOOL_TYPE_REF = re.compile(r"^@\{([a-z_]+)\}$")
+
+
+def resolve_allowed_tools(desired: list[str], tools: list[dict] | None) -> list[str]:
+    """Expand each "@{<tool type>}" entry to "@<name>" for every configured tool of that type.
+
+    A plain allowedTools name matches built-in tools only; a configured tool is selected as
+    "@<tools[].name>" (harness-tools.html#allowedtools-patterns), and the name is chosen per
+    deployment. Raises ValueError when a referenced type is not configured, so a narrowed list
+    can never drop the browser silently."""
+    out: list[str] = []
+    for entry in desired:
+        m = TOOL_TYPE_REF.match(entry)
+        if not m:
+            out.append(entry)
+            continue
+        names = [t["name"] for t in tools or [] if t.get("type") == m.group(1) and t.get("name")]
+        if not names:
+            raise ValueError(f"{entry}: the harness has no configured {m.group(1)} tool")
+        out += [f"@{n}" for n in names]
+    return out
 
 
 def find_harness(client: Any, name: str) -> dict | None:
@@ -254,7 +297,7 @@ def main() -> int:
     session.client("sts").get_caller_identity()  # validates creds
     control = session.client("bedrock-agentcore-control")
 
-    missing, any_drift, regressions = [], False, []
+    missing, unresolved, any_drift, regressions = [], [], False, []
     for name, desired in DESIRED.items():
         print(f"=== {name} ===")
         harness = find_harness(control, name)
@@ -272,6 +315,13 @@ def main() -> int:
             print(f"  ⚠ limits below were sized for {desired['sized_for_model']}; re-size them before applying "
                   f"(AGENTS.md §3.15)")
 
+        try:
+            desired = {**desired, "allowedTools": resolve_allowed_tools(desired["allowedTools"], detail.get("tools"))}
+        except ValueError as e:
+            print(f"  ✗ {e}; nothing checked or applied for this harness")
+            unresolved.append(name)
+            print()
+            continue
         rows = plan_for(detail, desired)
         tags = {**desired["tags"], "environment": args.environment}
         current_tags = control.list_tags_for_resource(resourceArn=harness["arn"]).get("tags", {}) or {}
@@ -305,6 +355,9 @@ def main() -> int:
     if missing:
         print(f"✗ not found: {', '.join(missing)} — nothing was checked for them", file=sys.stderr)
         return 1
+    if unresolved:
+        print(f"✗ tool type not configured on: {', '.join(unresolved)}", file=sys.stderr)
+        return 6
     if regressions and (args.dry_run or not args.allow_narrowing):
         return 5
     if args.dry_run:
