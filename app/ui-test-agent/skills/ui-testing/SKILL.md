@@ -14,7 +14,9 @@ the prompt.
 ## Tools
 
 With the reference configuration (`allowedTools: ["*"]`) the harness offers
-`browser`, `shell`, `code_interpreter`, `file_operations` and `skills`.
+`browser`, `shell` and `code_interpreter`, described below, plus built-in tools
+for files, web fetch, sub-agents, memory, to-dos and `skills`. The built-in set
+changes with the platform.
 
 - **`browser`** is one tool; you choose `action.type`. Start with `init_session`
   (give a `session_name` and a `description`), then pass the same `session_name`

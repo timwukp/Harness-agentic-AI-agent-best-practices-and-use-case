@@ -70,14 +70,17 @@ LIMIT_FIELDS = ("maxTokens", "maxIterations", "timeoutSeconds")
 #     ["browser", "code_interpreter"] and ["browser_*", "code_interpreter*", "skills"]
 #     both drop `shell`, so login would fail.
 #   - The runtime tool is named `browser`, which a `browser_*` glob does not match.
+#   - On 2026-11-27 the same "*" (harness still v8) offered shell, read, write, edit,
+#     web_fetch, browser, code_interpreter, subagent, retrieve_context, skills, todo_write:
+#     the platform's built-in set grows without a harness update.
 #   Narrowing below "*" needs its own live test that keeps `shell`.
 #
 # BugFixAgentHarness allowedTools = ["code_interpreter"], unchanged from live. The
 # orchestrator (ci-agent/bugfix_agent.py) puts the source in the prompt and reads the diff
-# from the reply, so the fix path uses no tool. AGENTS.md §3.11.3 says a plain name filters
-# declared tools out; whether that holds for this harness has not been observed (its spans
-# are past the 30-day retention). Check `gen_ai.agent.tools` on the next Bug-Fix invoke span
-# before changing it.
+# from the reply, so the fix path uses no tool. As AGENTS.md §3.11.3 says, the plain name
+# filters the declared tool out: on 2026-11-27 the invoke span's `gen_ai.agent.tools` was
+# ["skills"] (the code interpreter is declared as `code_interpreter_1`), and the fix still
+# applied. Adding `code_interpreter*` widens the agent's tools and needs its own test.
 #
 # Limits are sized for the model in `sized_for_model` (both models cap output at 128K tokens;
 # AGENTS.md §3.15 has the capacity chain). If the live model differs, the script warns:
