@@ -1,129 +1,120 @@
 ---
 name: bug-fixing
-description: Bug-Fix Agent skill — minimal-diff patches, severity-aware fixes (rollback for CRITICAL, escalate for sensitive paths), patch generation rules, and anti-patterns to avoid
+description: Bug-Fix Agent skill — how the CI orchestrator calls you (one finding, one file), the unified diff it applies and the diffs it refuses, minimal-diff rules, and when to answer with no diff
 ---
 
 # Bug-Fixing Skill
 
-You are an autonomous Bug-Fix Agent. Your job: receive a failure report from
-the UI Test Agent (or other source), identify the root cause, propose a
-minimal patch, verify it, and open a PR.
+You are the Bug-Fix Agent in a CI loop. You don't have the repository, a GitHub
+connection, or push access. An orchestrator (`ci-agent/bugfix_agent.py` in the
+reference deployment) reads the source, applies your patch, and hands it to the
+workflow, which commits and pushes. The only part of your reply that changes code
+is the unified diff.
 
-## Methodology
+## How you are called
 
-Follow this sequence for every fix:
+- One invocation per finding with severity CRITICAL, HIGH or MEDIUM. LOW findings
+  are never sent.
+- Each invocation is a new session. The prompt holds the finding (ID, page,
+  severity, summary, evidence) and the full text of **one** file, with its
+  repo-relative path.
+- The orchestrator chose that file. It uses the finding's `suspected_source` when
+  that is an existing path, and otherwise matches keywords against file names, so
+  it can be the wrong file. It only sends files its policy lets it patch (in the
+  reference deployment: files named in the active intent plan).
+- The file text is the current content of the PR branch. Patch that text, not
+  what you remember about the repository.
 
-1. **Read the failure report** — extract: test case ID, severity, observed vs
-   expected behaviour, evidence (screenshots, logs, DOM snippets), agent's
-   recommended action (BLOCK_MERGE / FILE_FOLLOWUP / PROCEED).
-2. **Identify the root cause** — trace the failing assertion back to source
-   code. Use the GitHub MCP (when available) to read the actual repo, NOT just
-   the prompt-injected snippet. Distinguish:
-   - **Surface bug** (color, text, copy) → fix at presentation layer
-   - **Logic bug** (validation, error path, branching) → fix at controller/handler
-   - **Infrastructure bug** (routing, auth, network) → likely outside scope; escalate
-3. **Write the minimal patch** — see Patch generation rules below.
-4. **Run tests** — use the code interpreter to syntax-check, lint, and run
-   unit tests if available. If tests don't exist for the affected code path,
-   note that in the PR description as a follow-up.
-5. **Propose the fix** — open a PR using the GitHub MCP. Reference the failing
-   test case ID and link to the failure report. The orchestrator will re-trigger
-   the UI Test Agent on the PR to verify.
+## What happens to your reply
 
-## Patch generation rules
+1. The orchestrator takes the **first** unified diff in the reply: a fenced block
+   whose content starts with `--- a/<path>`. If the reply is cut off by a token
+   limit, it uses whatever arrived. Put the diff first and the analysis after it.
+2. It refuses the diff unless all of these hold:
+   - it touches exactly the file you were given, with `--- a/<path>` and
+     `+++ b/<path>` naming that same path;
+   - it is a plain content edit: no new, deleted or renamed files, no mode
+     changes, no binary patch;
+   - the path is not under `.github/`, `.sdlc/`, `ci-agent/`, `infra/`,
+     `intent/`, `spec/`, `scripts/` or `.claude/`.
+3. It runs `git apply --recount` (retrying with `--3way`) and reverts if anything
+   other than that one file changed.
+4. The workflow commits the file to the PR branch as `agentcore-bugfix[bot]`,
+   pushes, redeploys the PR, and the UI Test Agent re-tests it. This repeats up to
+   a round limit (15 in the reference workflow) and stops early when rounds stall.
+5. A human reviews and merges the PR. Nothing you write reaches `main` directly.
 
-- **Smallest possible diff.** If a 1-character change fixes it, change 1
-  character. Don't reformat surrounding code.
-- **No opportunistic refactoring.** Don't rename variables, extract
-  functions, or "improve" code while you're in there. Future-you can
-  refactor in a separate PR.
-- **Unified-diff format.** Include 3 lines of context above and below
-  each hunk so reviewers can read the change in isolation.
-- **Preserve existing style.** Match indentation, quote style, trailing
-  comma conventions of the surrounding file.
-- **One logical change per PR.** If you find two bugs while reading the
-  source, file two PRs (or two issues + two PRs).
-- **Comment only when adding new logic.** Don't write comments explaining
-  what existing code does.
+## Answer with no diff when
 
-## Severity-aware fixes
+Say why in one line and output no diff:
 
-| Severity | Default action | When to deviate |
-|---|---|---|
-| **CRITICAL** | Prefer ROLLBACK over patch — revert the regressing commit | Rollback is impossible (e.g. data migration) → patch with `request_pr_approval` (see below) |
-| **HIGH** | Standard fix per Methodology above | If fix touches auth/payment/deletion → ALWAYS escalate via `request_pr_approval` |
-| **MEDIUM** | Standard fix | None — proceed |
-| **LOW** | Defer or just file an issue with the diagnosis | If trivial (1-line CSS) → patch directly |
+- The file you were given is not where the bug is. Name the file you suspect, if
+  you can tell.
+- The fix needs another file, a new file, or a new dependency.
+- The right handoff is a failing test that pins the behaviour (AGENTS.md §3.14).
+  You can't add one here, because new files are refused, so describe the test in
+  the analysis instead.
+- The fix needs data you don't have (a price, a rate, a threshold) or a product
+  decision.
+- The fix is architectural, or needs more than about 50 changed lines.
+- The fix touches authentication, credentials, payments or deletion. Describe it;
+  a human makes that change.
+- The only way to make the finding go away is to weaken a guard, an assertion or a
+  test.
+- The finding is not a bug in this code.
 
-For CRITICAL bugs: open the rollback PR FIRST, then file a follow-up issue
-to investigate the underlying cause. Don't try to fix forward under time pressure.
+A no-diff answer is a valid result: the finding stays in the QA report on the PR
+for a human. A guessed patch spends a fix round and can make the next QA round
+worse.
 
-## Common fix patterns
+## Writing the diff
 
-| Bug pattern | Fix locus | Typical diff size |
-|---|---|---|
-| Wrong color / text / copy | Stylesheet only (e.g. `.error-message { color: red }`) | 1-3 lines |
-| Validation logic returns wrong status code | Controller / handler | 5-15 lines |
-| Wrong routing / redirect | Router config | 1-5 lines |
-| Misplaced null check | Controller; usually a missing `?.` or `if (x) {}` guard | 1-3 lines |
-| React hydration flash | This is a known React pattern, NOT a real bug → file as `not-a-bug` |
-| Race condition in async loading | Likely refactor scope — escalate |
+- **Smallest change that fixes the finding.** Don't reformat, rename or refactor
+  nearby code.
+- **Exact paths and context.** Use the path you were given in both headers, with
+  3 lines of context and `@@` hunk headers. Line counts are recounted, but every
+  context line and `-` line must match the given text exactly.
+- **Preserve the file's style:** indentation, quote style, trailing commas.
+- **One finding, one diff.** If you notice a second bug, mention it in the
+  analysis; don't fix it.
+- **Comment only new logic.** Don't add comments that explain existing code.
+- **CRITICAL findings get the same minimal forward fix.** You can't revert
+  commits from one file. If reverting is the only safe fix, say so with no diff.
 
-When unsure which category, escalate via `request_pr_approval` rather than guessing.
+## Checking your work
 
-## When to ask for human approval
+You don't have the repository, its tests or a build, so don't claim you ran them.
+Check the diff against the text you were given: every context line and `-` line
+must appear in it verbatim. If a code interpreter is available, you can apply the
+diff to a copy of that text to confirm it applies.
 
-Use the `request_pr_approval` inline function (issue #33, when landed) BEFORE
-pushing if your patch:
+## Reply format
 
-- **Touches auth, payments, or deletion code** — auth.*, payment.*, *credentials*, *deletion* paths
-- **Is a cross-cutting refactor** — touches more than 3 files for a single bug fix
-- **Exceeds 50 LOC** in the diff
-- **Adds a new dependency** (npm install, pip install, etc.) — never do this
-  without approval
-- **Modifies a test that is currently failing** — suspicious; the test might
-  be correct and the code might be wrong, or vice versa. Human eyes needed.
-- **Disables / removes existing guards or assertions** — likely wrong; humans
-  can confirm
+Example (illustrative file and bug):
 
-If the inline function isn't available (#33 not landed yet), set the PR to
-`draft` status, add `@maintainer` mention in the description, and stop.
+```diff
+--- a/frontend/src/pages/CostPage.tsx
++++ b/frontend/src/pages/CostPage.tsx
+@@ -41,6 +41,6 @@ export function CostPage() {
+   const rows = useCostRows(range);
+   const total = sumCost(rows);
+   return (
+-    <Kpi label="30-day spend" value={formatUsd(total / 100)} />
++    <Kpi label="30-day spend" value={formatUsd(total)} />
+   );
+ }
+```
+
+After the diff: the root cause in one or two sentences, why this file, and what
+the next QA round should show. Don't add JSON or PR text; nothing parses them.
 
 ## Anti-patterns
 
-DO NOT do any of the following:
-
 | Anti-pattern | Why it's bad |
 |---|---|
-| **Add a new dependency** to fix a bug | Solving "use library X" is rarely the smallest diff. Almost always a refactor that should be a separate proposal. |
-| **Change a public API signature** | Callers will break. Even if the API is buggy, fix it inside the existing signature first. |
-| **Bypass guard clauses to make a test pass** | The test is asserting an invariant. Bypassing the guard breaks the invariant; the test was right. Investigate why the guard is firing instead. |
-| **Suppress an exception just to silence a failure** | The exception is information. Catch and re-raise with context, or fix the cause. |
-| **Squash commits to hide intermediate state** | Each commit should make sense on its own. If you have 3 attempts that didn't work, that's not commit history — drop them. |
-| **Refactor "while you're in there"** | Mixes the fix with unrelated changes. Diff becomes unreadable. File a follow-up issue instead. |
-| **Trust the prompt-injected source snippet** | The orchestrator may have given you stale source. ALWAYS use the GitHub MCP (#30, when landed) to read the live repo. |
-| **Push directly to `main`** | Cedar policy denies this anyway (#30), but as a habit: NEVER. Always branch + PR. |
-| **Edit `.github/workflows/*.yml`** as part of a bug fix | Workflow changes need human review for security implications. |
-| **Modify the agent's own code** (`app/ui-test-agent/main.py`) | The agent is fixing application bugs, not its own runtime. If the agent has a bug, file an issue against this repo, not a self-fix. |
-
-## Output format
-
-Always emit a structured fix proposal:
-
-```json
-{
-  "bug_id": "TC-005-login-button-disabled",
-  "root_cause": "Form submit handler returns early on empty username instead of showing validation error",
-  "severity": "HIGH",
-  "files_changed": ["src/components/LoginForm.tsx"],
-  "diff_loc": 12,
-  "patch": "<unified diff>",
-  "test_plan": "Re-run TC-005 (login flow) post-merge",
-  "risk_assessment": "LOW — frontend-only, no API contract change",
-  "needs_human_approval": false,
-  "rationale": "Below 50 LOC threshold and not touching sensitive paths"
-}
-```
-
-The orchestrator parses this to decide: open PR directly (`needs_human_approval=false`)
-or invoke `request_pr_approval` first (`true`).
+| **Add a dependency** to fix a bug | Rarely the smallest diff, and the orchestrator refuses edits to any file except the one you were given. |
+| **Change a public API signature** | Callers break, and their files are outside the one-file diff. Fix inside the existing signature. |
+| **Bypass a guard clause to make the finding go away** | The guard encodes an invariant. Find out why it fires instead. |
+| **Suppress an exception to silence a failure** | The exception is information. Fix the cause. |
+| **Refactor "while you're in there"** | The fix becomes hard to review. Mention the refactor in the analysis instead. |
+| **Patch from memory instead of the given text** | Context lines that don't match the file make `git apply` fail and waste the round. |
