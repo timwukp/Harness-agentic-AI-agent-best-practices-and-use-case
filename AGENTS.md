@@ -479,22 +479,25 @@ tools = [
 
 The `config` UNION has 5 keys (one per tool type): `remoteMcp` / `agentCoreBrowser` / `agentCoreGateway` / `inlineFunction` / `agentCoreCodeInterpreter`. Empty `{}` for the inner config also works (uses default browser/code-interpreter ARNs), but explicit ARNs are more robust.
 
-#### 3.11.3 `allowedTools` plain-name doesn't match declared tools — use globs
+#### 3.11.3 `allowedTools`: a plain name matches built-ins only — select a configured tool as `@<tools[].name>`
 
-The doc table at https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-tools.html#allowedtools-patterns shows plain names matching builtins (`shell`, `file_operations`). For DECLARED tools (browser, code_interpreter, inline functions), plain names like `"browser"` **do not match** — the entry is filtered out.
+Per the [allowedTools patterns table](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-tools.html#allowedtools-patterns), a plain name matches built-in tools (`shell`, `read`, `retrieve_context`, …). A configured tool (browser, code interpreter, inline function, MCP server, gateway) is selected as `@<name>`, where `<name>` is that tool's `name` field in `tools`. It is not the name the model sees.
 
-```python
-# ❌ Filters out browser AND code_interpreter; agent sees only skills
-allowedTools = ["browser", "code_interpreter"]
+Measured on a copy of UITestAgentHarness whose tools are named `aws_browser_v1` and `aws_codeinterpreter_v1`. The right column is `gen_ai.agent.tools` on the `invoke_agent` span (2026-11-27, issue #80, `agentcore/scripts/VERIFICATION_issue_80.md`):
 
-# ✅ Glob matches the primitives the tools expose
-allowedTools = ["browser_*", "code_interpreter*", "skills"]
+| `allowedTools` | Tools offered |
+|---|---|
+| `["*"]` | shell, read, write, edit, web_fetch, browser, code_interpreter, subagent, retrieve_context, skills, todo_write |
+| `["shell", "read", "retrieve_context", "skills", "@aws_browser_v1", "@aws_codeinterpreter_v1"]` | shell, read, browser, code_interpreter, retrieve_context, skills |
+| `["shell", "read", "retrieve_context", "@browser", "@code_interpreter"]` | shell, read, retrieve_context, skills |
+| `["shell", "browser", "code_interpreter"]` | shell, skills |
+| `["browser_*", "code_interpreter*", "skills"]` (this section's earlier advice) | skills |
 
-# Also works:
-allowedTools = ["*"]  # everything (broad)
-```
+- The model sees the tools as `browser` and `code_interpreter` whatever their configured names are, yet `@browser` selects nothing unless the configured name is `browser`.
+- `skills` is offered whenever the harness has skills, listed or not.
+- `"*"` is the platform's *current* recommended set, and it grows. The same harness version was offered `shell, file_operations, browser, code_interpreter, skills` on 2026-10-29/30.
 
-(`skills` is plain because it's a builtin; matches by name fine.)
+`agentcore/scripts/tighten_harness_config.py` writes `@{agentcore_browser}` / `@{agentcore_code_interpreter}` and resolves them per harness, because the configured names differ between deployments (`browser` in `app/ui-test-agent/deploy_harness.py`, `aws_browser_v1` on the live harness).
 
 #### 3.11.4 `agentcore_browser` exposes 6 primitives, not a single name
 
@@ -509,7 +512,7 @@ browser_console_messages
 browser_network_requests
 ```
 
-So `allowedTools` must reference primitives or use `browser_*` glob. The harness's `tools[].name = "browser"` is the configuration name; the runtime expansion to primitives is hidden behind the public harness loader.
+For `allowedTools`, select the tool as `@<tools[].name>` (§3.11.3): on 2026-11-27, `browser_*` matched nothing. The harness's `tools[].name` is the configuration name; the model sees the tool as `browser` (one tool with 22 `action.type` values on 2026-11-27, VERIFICATION_issue_76.md).
 
 The agentcore_code_interpreter likely has a similar primitive expansion (not yet enumerated; investigated as part of issue #65).
 
@@ -797,8 +800,8 @@ Symptom: agent enumerates tools and reports only `skills` is available, even tho
 Cause: one of three configuration bugs (see §3.11):
 
 1. `tools[].config` field is missing — tool isn't actually wired (§3.11.2)
-2. `allowedTools` uses plain names — they don't match declared tools (§3.11.3)
-3. `agentcore_browser` exposes primitives, not a single name — you allowed `["browser"]` but the runtime knows `["browser_navigate", ...]` (§3.11.4)
+2. `allowedTools` uses plain names — they match built-in tools only (§3.11.3)
+3. `allowedTools` uses the name the model sees (`@browser`) or a glob (`browser_*`) instead of `@<tools[].name>` (§3.11.3)
 
 Fix:
 
@@ -807,8 +810,8 @@ Fix:
 tools = [{"type": "agentcore_browser", "name": "browser",
           "config": {"agentCoreBrowser": {"browserArn": "..."}}}]
 
-# 2. Use globs in allowedTools
-allowedTools = ["browser_*", "code_interpreter*", "skills"]
+# 2. Select each configured tool as "@" + its tools[].name; built-ins by plain name
+allowedTools = ["shell", "skills", "@browser"]
 
 # 3. Apply
 control.update_harness(harnessId=..., tools=tools, allowedTools=allowedTools, clientToken=...)

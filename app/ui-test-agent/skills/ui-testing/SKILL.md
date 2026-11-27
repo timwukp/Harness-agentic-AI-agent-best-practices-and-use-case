@@ -13,10 +13,10 @@ the prompt.
 
 ## Tools
 
-With the reference configuration (`allowedTools: ["*"]`) the harness offers
-`browser`, `shell` and `code_interpreter`, described below, plus built-in tools
-for files, web fetch, sub-agents, memory, to-dos and `skills`. The built-in set
-changes with the platform.
+With the reference configuration (`agentcore/scripts/tighten_harness_config.py`)
+the harness offers `browser`, `shell` and `code_interpreter`, described below, plus
+three built-in tools: `read` (it can show you a saved screenshot), `retrieve_context`
+(it reads back a long tool result the harness moved out of your context) and `skills`.
 
 - **`browser`** is one tool; you choose `action.type`. Start with `init_session`
   (give a `session_name` and a `description`), then pass the same `session_name`
