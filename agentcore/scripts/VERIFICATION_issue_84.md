@@ -39,5 +39,31 @@ Run `ci-agent/qa_agent.py` (token-monitoring `main`) once against the dev target
 
 Estimated cost: one QA run, about $3.60–$8.77 at list price (the #76 estimate).
 
-## 4b results
-Pending.
+## 4b results (2026-11-28, after merge at `a828616`)
+
+**Verdict: PASS.** No run was dedicated to this check. The run below was the allowedTools live check (#80); it loaded this
+skill, and it meets every criterion above, so a second run would only have repeated it.
+
+Run: `ci-agent/qa_agent.py` from token-monitoring `main@b774f3f` (after #130) against the live UI harness (version 9),
+2026-11-28 00:39:41–00:46:39Z, viewer then admin pass, report prefix `verify-allowedtools-live/`. The skill came from
+`main` here (`a828616`, merged 00:21:09Z, before the run started).
+
+| Criterion | Result | How it was checked |
+|---|---|---|
+| Each pass calls `skills` | ✅ viewer 1, admin 1 | the report's `passes[].browser_actions` |
+| `readonly: ok`, `persona_check: ok`, no violations | ✅ both passes | the report's `passes[]` |
+| Shared data unchanged; DORA collector does not start | ✅ project registry (31 items) and DORA repositories (8) byte-identical between 00:32:51Z and 01:08:19Z; no collector start in that window | DynamoDB scans hashed before and after; collector log |
+| `pages_tested` 10, final JSON parses | ✅ 10; parsed (`overall: FAIL` from 6 findings about the app itself, outside this change) | the report |
+| Password absent from the reply | ✅ absent from all 4 published artifacts (each pass's report and summary), for both logins | checked as a boolean against both secrets, never printed |
+
+Also observed: the invoke spans list exactly `browser`, `code_interpreter`, `read`, `retrieve_context`, `shell`, `skills`
+for both passes (the #80 tool list).
+
+Reported by other sessions, not re-checked here:
+- The Ops Console Run QA batch `66dd43e05383` (01:05:05–01:07:00Z) loaded the skill (1 `skills` call), `readonly: ok`.
+- A second allowedTools run (01:35:37–01:41:55Z, on the token-monitoring feature-52 branch): skills → shell, `readonly: ok`.
+  The data part was checked: the registry was unchanged, and in the DORA repositories only collector-maintained fields
+  changed, all from the scheduled 01:19:32Z run.
+
+The QA passwords were rotated after the last of these sign-ins (01:46:12Z and 01:46:17Z), because every run types them
+into the model-invocation log.
