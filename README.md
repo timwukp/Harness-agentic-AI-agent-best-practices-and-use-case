@@ -103,7 +103,11 @@ An AI agent that navigates web applications like a human QA tester — clicking 
 > and `global.anthropic.claude-opus-5-5` (Bug-Fix Agent). The model is a
 > one-line declarative config (`model.bedrockModelConfig.modelId`) — if you deploy your own copy,
 > swap in any Bedrock model that fits your needs (Sonnet for lower latency/cost, Opus for maximum
-> capability) via `UpdateHarness`, without touching CI or redeploying code.
+> capability) via `UpdateHarness`, without redeploying code. Switching is not free, though: a model
+> that thinks longer can need a larger harness `maxTokens` and timeout, and more time in CI. The QA
+> workflow's job timeout is sized for fable-5-class models (`timeout-minutes` in `ui-qa-agent.yml`,
+> token-monitoring repo), and the QA agent's own read timeout is 900 s (`ci-agent/qa_agent.py`).
+> Re-check these when you switch.
 
 The whole loop is monitored, evaluated, and optimized from the companion open-source
 [**AgentCore Agent Ops Console**](https://github.com/timwukp/bedrock-agentcore-agent-ops-console) — that is the console you see throughout the video above.
