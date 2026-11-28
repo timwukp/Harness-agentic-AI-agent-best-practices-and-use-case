@@ -33,8 +33,9 @@ python invoke.py \
   --url https://staging.example.com \
   --test-cases "Login with valid credentials" "Login with invalid password"
 
-# Run regression / golden tests after any agent change
-python eval_runner.py --harness-arn <ARN>
+# Golden tests before promoting a harness change (a throwaway copy, or an endpoint serving the candidate version)
+python eval_runner.py --harness-arn <HARNESS_ARN> --target-url <URL of the hosted app/demo-frontend/index.html> \
+  [--qualifier <ENDPOINT_NAME>]
 
 # Run full E2E pipeline (UI Test → Bug-Fix → patch)
 python e2e_pipeline.py
@@ -46,7 +47,9 @@ python e2e_pipeline.py
 |------|---------|
 | `main.py` | Strands agent entry point (AgentCore Runtime, deployed mode) |
 | `invoke.py` | Orchestrator script (boto3, streaming, inline function handling) |
-| `eval_runner.py` | 6 golden tests for agent regression validation |
+| `eval_runner.py` | 5 golden tests on the demo page (`../demo-frontend/index.html`: the valid sign-in plus one case per observable defect), run against the harness (`InvokeHarness`). Each verdict must equal `expected_status`; it exits non-zero on any mismatch or error, or when no case ran |
+| `test_eval_runner.py` | Offline tests for `eval_runner.py` (fake boto3, no AWS): `python3 -B -m unittest test_eval_runner` |
+| `mutate_eval_runner.py` | Mutation check: every mutant of `eval_runner.py` must turn `test_eval_runner` red |
 | `a2a_handoff.py` | A2A protocol — direct invocation of the Bug-Fix Agent |
 | `e2e_pipeline.py` | Full pipeline orchestration: UI Test → A2A → Bug-Fix → patch |
 | `harness.json` | Harness declarative configuration (design reference, not the deployed mode for this agent) |

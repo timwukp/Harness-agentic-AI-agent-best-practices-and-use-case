@@ -719,81 +719,76 @@ golden_tests = [
 
 ### 2. Evaluation Runner Implementation
 
-The conceptual golden-tests pattern above is implemented concretely in `app/ui-test-agent/eval_runner.py`. It runs a fixed suite of 6 prompts against the deployed agent and verifies that the response contains expected keywords.
+The conceptual golden-tests pattern above is implemented concretely in `app/ui-test-agent/eval_runner.py`. Its known-bug app is the in-repo demo page, `app/demo-frontend/index.html`, which marks five deliberate bugs (`BUG 1` … `BUG 5` in the file). Rendered, `BUG 1` and `BUG 3` are one defect: the transparent overlay covers the lower-left of the Password field. The runner sends 5 prompts to the UI Test Agent **harness**, one `InvokeHarness` session per case, and checks the verdict the agent reports against each case's `expected_status`. One case per observable defect expects FAIL (4 cases), and the valid sign-in expects PASS.
 
 **Test definition format (from `eval_runner.py`):**
 
 ```python
 GOLDEN_TESTS = [
+    # index.html:17-18 (BUG 2): .error-message { color: green }. Wrong credentials show it (index.html:69-70).
     {
-        "id": "GT-01",
-        "prompt": "Navigate to https://the-internet.herokuapp.com/login. "
-                  "Type 'tomsmith' in username, 'SuperSecretPassword!' in password, "
-                  "click Login. Report PASS if redirected to /secure.",
-        "expected_status": "PASS",
-        "must_contain": ["secure", "logged in"],
+        "id": "GT-BUG2",
+        "bugs": [2],
+        "title": "the error message is green, not red",
+        "prompt": "Open {url}. Type wronguser in the Username field and wrongpass in the Password field, then click "
+                  "Login. Read the computed CSS color of the error message text. Report FAIL if the text is not "
+                  "red, because an error message should be red. Give the color value you read.",
+        "expected_status": "FAIL",
+        "must_contain": ["green"],
+        "source": [(17, "BUG 2: Error message uses wrong color"), (18, ".error-message { color: green;"), ...],
     },
-    # ... GT-02 through GT-06
+    # ... GT-LOGIN, GT-OVERLAY (bugs [1, 3]), GT-BUG4, GT-BUG5
 ]
 ```
 
-The 6 golden tests cover:
+`{url}` is replaced with `--target-url`, the hosted copy of the page; no prompt names a host. Each expected verdict and keyword is derived from the page, and `source` cites the lines: the tests check every cited line against the file, so a change to the page that touches a cited line turns them red. `bugs` lists the page markers a case covers. Each marker maps to exactly one case, and only `BUG 1` and `BUG 3` share one, so a defect is never counted twice.
 
-| ID | Scenario | Verifies |
-|---|---|---|
-| GT-01 | Valid login | Agent can drive a happy-path login flow |
-| GT-02 | Invalid login | Agent correctly reports an error message |
-| GT-03 | Dropdown selection | Agent handles `<select>` elements |
-| GT-04 | Broken images | Agent detects HTTP 4xx image responses |
-| GT-05 | Dynamic loading | Agent waits for async content to appear |
-| GT-06 | Add/remove elements | Agent handles dynamic DOM mutation |
+The 5 golden tests cover:
 
-**Validation approach (current):**
+| ID | Page lines | What the agent must find | Expected |
+|---|---|---|---|
+| GT-LOGIN | `index.html:64-65` | `admin` / `password123` shows "Login successful! Welcome, admin" | PASS |
+| GT-OVERLAY | `index.html:11, 14, 20-21, 33, 36-37` | A transparent overlay (`.overlay-bug`) takes clicks on the lower-left of the Password field (`BUG 1` and `BUG 3`) | FAIL |
+| GT-BUG2 | `index.html:17-18` | The error message text is green | FAIL |
+| GT-BUG4 | `index.html:56-57, 69` | An empty password is not rejected; the page shows a server error | FAIL |
+| GT-BUG5 | `index.html:68-69` | Wrong credentials report "Internal server error", not invalid credentials | FAIL |
 
-```python
-def run_golden_tests(harness_arn: str, region: str = "us-east-1") -> dict:
-    client = boto3.client("bedrock-agentcore", region_name=region)
-    results = {"total": len(GOLDEN_TESTS), "passed": 0, "failed": 0, "details": []}
+**Validation approach (v0.3.0):**
 
-    for test in GOLDEN_TESTS:
-        response = client.invoke_agent_runtime(
-            agentRuntimeArn=harness_arn,
-            runtimeSessionId=str(uuid.uuid4()),
-            body=json.dumps({"prompt": test["prompt"]}).encode(),
-        )
-        # Stream response into a single string
-        response_text = "".join(
-            chunk.decode("utf-8", errors="ignore")
-            for event in response.get("body", [])
-            for chunk in [event.get("chunk", {}).get("bytes", b"")]
-        )
-        # Keyword-based pass/fail
-        if any(kw in response_text.lower() for kw in test["must_contain"]):
-            results["passed"] += 1
-        else:
-            results["failed"] += 1
-    return results
-```
+- **Request.** Each prompt gets a fixed suffix asking the agent to end its reply with a line that holds only `VERDICT: PASS` or `VERDICT: FAIL`. The request carries `harnessArn`, an optional `qualifier` (harness endpoint name), a new `runtimeSessionId`, and an `actorId` of the form `golden-eval-<12 hex>`, new for each run so Memory cannot recall an earlier run's answers. It sends none of the per-call override fields (`model`, `systemPrompt`, `tools`, `skills`, `allowedTools`, `maxTokens`, `maxIterations`, `timeoutSeconds`), so the run tests the configuration pinned on the harness version the endpoint serves. The client's read timeout is 900 s (botocore's default of 60 s cuts long turns off, AGENTS.md §3.15).
+- **Stream.** The reply is the `contentBlockDelta.delta.text` deltas only: tool input, tool results, reasoning and hook events are not part of it. Text from a new content block, or after any other event, starts a new line. The runner also reads the last `messageStop.stopReason` and any error event (`internalServerException`, `validationException`, `runtimeClientError`).
+- **Verdict.** A verdict line holds `VERDICT: <PASS|FAIL>` and nothing else apart from Markdown emphasis, so the instruction restated (`VERDICT: PASS or VERDICT: FAIL`) is not a verdict. A case is `ok` when the stream ends with `end_turn`, the reply's last verdict line equals `expected_status`, and the reply names at least one `must_contain` keyword. A wrong verdict or a missing keyword is a `MISMATCH`. A failed call, an error event, any other stop reason, or a reply with no verdict line is an `ERROR`.
 
-**CI integration:**
+**Running it:**
 
 ```bash
-python app/ui-test-agent/eval_runner.py --harness-arn "$RUNTIME_ARN"
-# Exit code 0 if all pass, 1 if any fail (suitable for GitHub Actions)
+# Before promoting a harness change: against a throwaway copy, or an endpoint that serves the candidate version
+python app/ui-test-agent/eval_runner.py --harness-arn "$HARNESS_ARN" --target-url "$DEMO_PAGE_URL" \
+    [--qualifier <endpoint-name>]
+# Exit 0: every case ran and passed. Exit 1: any MISMATCH or ERROR, or no case ran.
+# Exit 2: --harness-arn is not a harness ARN (a runtime ARN is refused), --target-url is not an http(s) URL,
+#         or --qualifier is not an endpoint name.
 ```
 
-**Limitations of the current approach:**
+Offline checks, no AWS access: `python3 -B -m unittest test_eval_runner` (44 tests, a fake boto3 that validates each request against the botocore 1.43.120 model) and `python3 -B mutate_eval_runner.py` (44 mutants, each must turn the tests red), both from `app/ui-test-agent/`.
 
-- **Keyword matching is brittle.** A response that says "login attempt secured by MFA" would falsely pass GT-01's `"secure"` keyword.
-- **No semantic verification.** The runner cannot tell that the agent reasoned correctly — only that the right substring appeared.
-- **No partial credit.** A test either fully passes or fully fails.
+**Where it fits next to online evaluation.** Online evaluation scores sessions on the live harness after they run, and a live session carries no expected answer. This runner checks a known page with known answers, before a change reaches the live harness. It is a pre-promotion check, not a scheduled job.
+
+**Limitations:**
+
+- **One sample per case.** Run-to-run variation in the model can flip a verdict. Re-run the suite before you call a single red case a regression.
+- **The page must be the one the cases describe.** Serve `app/demo-frontend/index.html` unchanged at `--target-url`. A different or edited page turns cases red without any agent change.
+- **The target's origin must be reachable and allowed.** `--target-url` has no default. Host the page on an origin the harness's browser can reach and that the browser policy and the `qa_tool_guard` hook (#89) allow. Otherwise every navigation is denied and the run goes red.
+- **The evidence check is still a substring match.** The verdict line is the primary check, and `must_contain` only confirms that the reply names what it saw.
+- **The page's comments for BUG 1 and BUG 3 are wrong about the rendered page.** They say the overlay covers the submit button. Measured in a browser at 1280×800, the overlay spans 306.9–326.9 px, 5.0 px above the button (331.9–374.4 px). Every sampled point on the button hit the button, and 8 of 81 points on the Password field hit the overlay. GT-OVERLAY therefore asks about the Password field. The page is left unchanged, because run #9 and the GitHub Pages mirror refer to those bytes.
+- **Harness only.** The runner does not invoke the Strands Runtime (`main.py`) through `InvokeAgentRuntime`.
 
 **Planned upgrade:** LLM-as-judge replacement that scores each response against the test's intent (1–5 scale) plus a structured rubric (correctness, evidence quality, severity classification). Tracked separately from this issue.
 
 ### 3. Regression Testing
 
 After every agent update (prompt change, model change, skill update):
-1. Run `eval_runner.py` against the deployed agent
+1. Run `eval_runner.py` against a throwaway copy of the harness, or an endpoint that serves the new version (`--qualifier`), before promoting it
 2. Compare results to baseline
 3. Alert if pass rate drops or false positives increase
 

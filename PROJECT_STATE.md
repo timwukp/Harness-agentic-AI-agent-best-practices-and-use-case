@@ -90,7 +90,9 @@ aws-harness-agentcore-use-case/
 │   └── ui-test-agent/
 │       ├── main.py                      # Strands agent (Browser + Code Interpreter + Memory)
 │       ├── invoke.py                    # Orchestrator (boto3, streaming, inline functions)
-│       ├── eval_runner.py               # 6 golden tests
+│       ├── eval_runner.py               # 5 golden tests on demo-frontend (InvokeHarness; verdict vs expected_status)
+│       ├── test_eval_runner.py          # Offline tests for eval_runner.py (fake boto3)
+│       ├── mutate_eval_runner.py        # Mutation check for eval_runner.py
 │       ├── a2a_handoff.py               # A2A protocol for Bug-Fix Agent
 │       ├── e2e_pipeline.py              # End-to-end orchestration (UI Test → Bug-Fix → Patch)
 │       ├── deploy.sh                    # Deployment script

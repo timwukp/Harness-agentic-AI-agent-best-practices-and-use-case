@@ -376,13 +376,14 @@ The agent ships with two helper scripts that exercise it end-to-end:
 
 ### `eval_runner.py` — golden-test regression suite
 
-Six pre-defined prompts (GT-01 … GT-06) covering valid login, invalid login, dropdowns, broken images, dynamic loading, and add/remove element flows. After every change to `main.py` (system prompt, model, tool list), run:
+Five pre-defined prompts against the in-repo demo page (`app/demo-frontend/index.html`): the valid sign-in (expected PASS), and one case per observable defect among the page's five marked bugs (expected FAIL; `BUG 1` and `BUG 3` are one overlay on the Password field). The runner invokes the UI Test Agent **harness** (`InvokeHarness`), not the Strands Runtime described above. Before you promote a harness change (system prompt, model, tools, skill), run it against a throwaway copy of the harness, or against an endpoint that serves the candidate version:
 
 ```bash
-python app/ui-test-agent/eval_runner.py --harness-arn $UI_TEST_AGENT_ARN
+python app/ui-test-agent/eval_runner.py --harness-arn $UI_TEST_AGENT_HARNESS_ARN --target-url $DEMO_PAGE_URL \
+    [--qualifier <endpoint-name>]
 ```
 
-Exit code is `0` if all pass, `1` if any fail — suitable for GitHub Actions regression. See [ARCHITECTURE.md §10.2 — Evaluation Runner Implementation](ARCHITECTURE.md#agent-testing-strategy) for the validation methodology and limitations (current: keyword matching; planned: LLM-as-judge).
+Exit code is `0` only when every case ran and its last `VERDICT:` line matched `expected_status`. It is `1` on any mismatch or error, or when no case ran. It is `2` when the ARN is not a harness ARN or the target URL is not an http(s) URL. `--target-url` has no default: host the page, unchanged, on an origin the harness's browser may open. See [ARCHITECTURE.md §10.2 — Evaluation Runner Implementation](ARCHITECTURE.md#agent-testing-strategy) for the validation method and its limitations (a verdict line plus a keyword evidence check).
 
 ### `e2e_pipeline.py` — full pipeline orchestration
 
