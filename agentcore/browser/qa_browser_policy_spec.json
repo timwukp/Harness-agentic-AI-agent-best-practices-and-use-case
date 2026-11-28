@@ -1,0 +1,56 @@
+{
+  "$comment": "Single source for the QA custom browser (WS4): which origins the browser may load, the managed Chrome enterprise policy generated from them, recording, and the network mode. build_qa_browser_policy.py turns this plus deployment values into the managed-policy file; nothing else writes that file.",
+  "specVersion": 1,
+  "name": "qa-browser",
+  "originRoles": {
+    "app": {
+      "source": "the app under test: TARGET_URL, which is the frontend stack's DistributionDomainName",
+      "input": "--app"
+    },
+    "api": {
+      "source": "the app's API: the API stack's ApiUrl origin (VITE_API_URL)",
+      "input": "--api"
+    },
+    "cognito": {
+      "source": "Amplify user-pool sign-in calls the Cognito user-pool endpoint directly (frontend/src/auth/cognito.ts: userPoolId + userPoolClientId only; no OAuth domain, no identity pool)",
+      "template": "https://cognito-idp.{region}.amazonaws.com"
+    }
+  },
+  "alwaysAllowed": [
+    "about:blank"
+  ],
+  "ignoredRequestSchemes": [
+    "data",
+    "blob",
+    "about",
+    "chrome",
+    "chrome-extension"
+  ],
+  "managedPolicy": {
+    "URLBlocklist": [
+      "*"
+    ],
+    "URLAllowlist": "<generated: alwaysAllowed + one scheme://host[:port] entry per origin role>",
+    "PasswordManagerEnabled": false,
+    "AutofillAddressEnabled": false,
+    "AutofillCreditCardEnabled": false
+  },
+  "recording": {
+    "enabled": false,
+    "enableOnlyAfter": "a boolean check that no QA password appears in any recording artifact of one full viewer run (match only, never print)"
+  },
+  "network": {
+    "mode": "PUBLIC",
+    "decision": "owner: VPC mode needs NAT (about $32/month) plus a proxy or firewall for domain egress control; PUBLIC relies on the managed URL allow-list"
+  },
+  "deployGate": "build --for-deploy refuses unless at least one recorded (non-synthetic) fixture of a full viewer run is given and every origin it requested is on the allow-list",
+  "guardConsumer": {
+    "env": "QA_ALLOWED_ORIGINS",
+    "value": "the generated origins, comma-separated, normalized as scheme://host:port; qa_tool_guard reads it"
+  },
+  "assumptions": [
+    "Chrome's URLBlocklist/URLAllowlist certainly govern navigations. Whether they also block fetch/XHR to an unlisted origin is not settled here; measure it on the throwaway browser. The recorded-fixture gate covers both cases: every origin the app loads must be listed.",
+    "The enterprise-policies docs list s3:GetObject/GetObjectVersion on the policy prefix as a prerequisite without naming the principal; settle which role needs it when creating the throwaway browser.",
+    "The policy file is a flat JSON object of Chrome policy keys (docs: browser-enterprise-policies.html, read 2026-11-28); up to 10 files; bucket in the browser's region."
+  ]
+}

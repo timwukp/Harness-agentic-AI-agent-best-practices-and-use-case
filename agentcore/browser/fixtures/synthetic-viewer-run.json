@@ -1,0 +1,33 @@
+{
+ "synthetic": true,
+ "$comment": "Synthetic stand-in for one full viewer run's request list, with example.test hosts. A recorded fixture (from browser session logs of a real run) replaces it in the deploy gate; synthetic fixtures never satisfy it.",
+ "requests": [
+  {
+   "url": "https://app.example.test/"
+  },
+  {
+   "url": "https://app.example.test/assets/index-abc123.js"
+  },
+  {
+   "url": "https://app.example.test/assets/index-def456.css"
+  },
+  {
+   "url": "https://cognito-idp.us-east-1.amazonaws.com/"
+  },
+  {
+   "url": "https://api.example.test/prod/costs?month=2026-11"
+  },
+  {
+   "url": "https://api.example.test/prod/me"
+  },
+  {
+   "url": "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="
+  },
+  {
+   "url": "blob:https://app.example.test/1f2e3d4c"
+  },
+  {
+   "url": "about:blank"
+  }
+ ]
+}
