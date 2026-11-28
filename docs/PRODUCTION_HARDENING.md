@@ -149,7 +149,7 @@ If the Runtime is configured for VPC mode, NAT gateway is required for ECR Publi
 - [ ] Container image successfully pushed to `<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/ui-test-agent:0.2.1`
 - [ ] `agentcore deploy` succeeds with the container reference
 - [ ] **Smoke test:** `agentcore invoke --session-id "$(uuidgen)" "Open https://the-internet.herokuapp.com/login and report the page title"` returns the expected title without a Playwright permission error
-- [ ] Re-run of golden tests via `python eval_runner.py --harness-arn $RUNTIME_ARN` shows ≥ 5/6 pass (matching local results)
+- [ ] Re-run of golden tests via `python eval_runner.py --harness-arn $HARNESS_ARN --target-url $DEMO_PAGE_URL` exits 0: all 5 verdicts match `expected_status` (the runner invokes the harness and refuses a runtime ARN)
 - [ ] CloudWatch logs show no `chrome` / `playwright` permission errors
 
 ### Cost impact
@@ -470,6 +470,8 @@ Storage included in Browser pricing — no separate fee at the time of writing.
 
 ## 5. Online Eval (Continuous Quality Monitoring)
 
+> **Status (2026-11-28):** the daily schedule below is not deployed. Online evaluation is already enabled on the live UI Test harness with 100% sampling; it is not defined in this repo (`agentcore/agentcore.json` has `onlineEvalConfigs: []`). The proposed triage of #20 folds the regression alarm into the alarms work (#18) as an alarm on the online-evaluation score, instead of scheduling this runner. `eval_runner.py` v0.3.0 invokes the harness and fails on any verdict that differs from `expected_status`. It is a pre-promotion check against a harness copy or endpoint, not a scheduled job ([ARCHITECTURE.md §10.2](ARCHITECTURE.md#agent-testing-strategy)).
+
 ### Problem
 
 The existing `eval_runner.py` (covered in [ARCHITECTURE.md §10.2](ARCHITECTURE.md#agent-testing-strategy)) only runs when someone manually invokes it. After a model upgrade, system-prompt change, or skill update, regressions can go unnoticed for days.
@@ -560,8 +562,8 @@ See [BEST_PRACTICES.md §7.3](BEST_PRACTICES.md#73-web-bot-auth--cryptographic-i
 
 The current test target inventory is:
 
-- `the-internet.herokuapp.com` (golden tests) — does **not** participate in Web Bot Auth (it's a public test sandbox; bot signals don't change behaviour)
-- `app/demo-frontend/` on GitHub Pages — does **not** participate; we control it but adding Web Bot Auth verification logic is out of scope
+- `the-internet.herokuapp.com` (earlier manual test runs) — does **not** participate in Web Bot Auth (it's a public test sandbox; bot signals don't change behaviour)
+- `app/demo-frontend/` on GitHub Pages (golden tests, `eval_runner.py`) — does **not** participate; we control it but adding Web Bot Auth verification logic is out of scope
 - Hypothetical future production / staging targets — depends on the customer
 
 ### Decision
@@ -633,7 +635,7 @@ After all six items are deployed, all of the following should be true:
 - [ ] ECR image present at `<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/ui-test-agent:0.2.1`
 - [ ] `agentcore deploy` succeeds with container reference
 - [ ] Smoke test passes without Playwright permission error
-- [ ] eval_runner.py shows ≥ 5/6 pass on the deployed Runtime
+- [ ] `eval_runner.py --harness-arn $HARNESS_ARN --target-url $DEMO_PAGE_URL` exits 0 (all 5 verdicts match)
 
 ### Item 2 — CloudWatch alarms
 - [ ] 4 alarms exist (Token Spike, Session Duration, Stuck State, Unexpected Domain)
