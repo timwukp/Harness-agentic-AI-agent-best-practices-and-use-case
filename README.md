@@ -46,6 +46,7 @@ A full walkthrough of the autonomous QA loop running against a **live dev enviro
 <summary>📖 <b>Table of contents</b></summary>
 
 - [What this does](#what-this-does)
+- [Scope & shared responsibility](#scope--shared-responsibility)
 - [Architecture](#architecture)
 - [Live demo — real bugs on a real dev environment](#live-demo--real-bugs-on-a-real-dev-environment)
 - [Deployment modes: Runtime vs. Harness](#deployment-modes-runtime-vs-harness)
@@ -86,6 +87,25 @@ An AI agent that navigates web applications like a human QA tester — clicking 
 | **AgentCore Memory** | Learns from past tests (semantic + episodic) |
 | **Strands Agents SDK** | Agent framework |
 | **AgentCore CLI** | Deployment tooling |
+
+---
+
+## Scope & shared responsibility
+
+This loop is built for an **app development platform**. It runs on pull requests, against a deployed **dev** environment, inside a sandbox that the platform owner operates. It is not a production or release-testing tool.
+
+| The platform owner is responsible for | This project is responsible for |
+|---|---|
+| Physically separating stage and production from the dev platform | Testing the code a run claims to test: deploy the PR branch, then test it |
+| Running the dev platform as a sandbox: disposable data, scoped accounts, resettable state | Agent behaviour on a shared app: the `ui-testing` skill's shared-app safety rules (no saving, submitting, deleting or changing settings; no write requests to the app's API) |
+| Test identities and credentials for the sandbox, and its SSO/MFA policy | Guarding the code path. In the reference pipeline (the token-monitoring repo's `ci-agent/`), agents commit only to PR branches, may not modify CI, infra or agent paths, and each diff is confined to the file under repair |
+| Environment topology: per-PR preview environments or one shared dev site | Securing this project's own components: harness configs, IAM roles and the ops console |
+| Branch protection on `main` (PR plus required checks) | Model and tool configuration, evaluation and cost visibility |
+
+**Known gaps on this project's side:**
+- **No target-URL allow-list.** The allow-list described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#url-allowlist-implementation) is designed but not yet implemented. Today the sandbox boundary is what keeps the agent on dev targets.
+- **Concurrent PRs on a shared dev site.** The reference workflow serialises runs per PR, not across PRs. On one shared site, another PR's deploy can land mid-run, so per-PR environments or a single global concurrency group are needed for team use.
+- **Backend changes aren't deployed in the loop.** Changes under `backend/lambdas/api/**` trigger a run, but the loop deploys only the frontend. QA therefore tests against the dev backend already running.
 
 ---
 
