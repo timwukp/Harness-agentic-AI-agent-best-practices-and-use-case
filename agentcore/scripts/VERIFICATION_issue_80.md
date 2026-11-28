@@ -178,9 +178,11 @@ Tokens:
   `main`'s ui-testing/SKILL.md, whose Tools paragraph still names the `["*"]` set. This PR's edit to that
   paragraph is descriptive: the tools the agent gets come from `allowedTools`, not from the skill.
 
-- The live UITestAgentHarness keeps `["*"]` until the owner runs
-  `python agentcore/scripts/tighten_harness_config.py --allow-narrowing --environment production`
-  after merge. That is about 4 minutes of `UPDATING` per harness.
+- Applying it to the live harness is a separate step after merge: a `--dry-run`, then
+  `python agentcore/scripts/tighten_harness_config.py --allow-narrowing`, with no `--environment` flag.
+  Both live harnesses are tagged `environment=dev` (set in #75), and the script's default is `dev`.
+  `--environment production` would re-tag both harnesses, Bug-Fix included. The apply is about
+  4 minutes of `UPDATING`. Result: § Post-merge apply.
 - `shell` still reaches the network (network mode PUBLIC). This list removes the
   dedicated fetch and delegation tools and stops the set from growing when the platform
   adds tools. It does not stop exfiltration through `shell`.
@@ -192,3 +194,28 @@ with no probe-named memory or runtime, and both live harnesses still read v8 `["
 
 Cost: probes $0.083; QA run $0.92 ($0.81 viewer + $0.11 admin) (Sonnet 5.5 list price: $2 input, $10 output,
 $0.10 cache read, $2.50 cache write per MTok). Bedrock bills its own rate.
+
+## Post-merge apply (2026-11-27, after merge at `5e39a43`)
+
+The merged script (blob `330d132`) was run against the live harnesses with the default
+`environment` value, `dev`. The owner approved the apply.
+
+| Step | Exit | Result |
+|---|---|---|
+| `--dry-run` | 5 | The only drift was UITestAgentHarness `allowedTools` `['*']` → the six tools (NARROW). Every other field and tag on both harnesses was `same`. |
+| `--allow-narrowing` | 0 | One `update_harness` (`['allowedTools']`) on UITestAgentHarness, 16:18:35–16:22:23Z; READY within the 600 s poll. BugFixAgentHarness: no call. |
+| re-run `--allow-narrowing` | 0 | `✓ No changes needed (idempotent re-run safe)` |
+| `--dry-run` | 0 | `✓ Dry run: both harnesses match the desired config.` |
+
+`get_harness` and `list_tags_for_resource` afterwards:
+
+| | UITestAgentHarness | BugFixAgentHarness |
+|---|---|---|
+| version | 8 → 9 | 7 (unchanged) |
+| `allowedTools` | `["shell", "read", "retrieve_context", "skills", "@aws_browser_v1", "@aws_codeinterpreter_v1"]` | `["code_interpreter"]` |
+| tools, skills, memory, model, limits | unchanged | unchanged |
+| tag `environment` | `dev` | `dev` |
+
+Not yet observed on the live harness: `gen_ai.agent.tools` on an `invoke_agent` span. That
+needs an invoke, and the next QA run will show it. The throwaway copy above, with the same
+tool names, showed exactly the six tools.
