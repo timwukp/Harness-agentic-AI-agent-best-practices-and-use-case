@@ -1,0 +1,233 @@
+{
+  "$comment": "Single canonical rule source for the QA tool guard: a before_tool_call Lambda hook on the UI test harness. The handler, its tests and every audit that replays qa_tool_guard_cases.json read this file; no rule is repeated in code. Payload and decision contract: AgentCore harness lifecycle hooks (docs: harness-lifecycle-hooks.html, read 2026-11-28).",
+  "specVersion": 1,
+  "name": "qa_tool_guard",
+  "event": "before_tool_call",
+  "$hookConfigComment": "The DESIRED entry for tighten_harness_config.py (owned there). UpdateHarness REPLACES hooks when given: every update path must omit hooks or pass the full list, never []. hookConfig is exactly the UpdateHarness `hooks` list (botocore >= 1.43.120 member path UpdateHarness.hooks[].beforeToolCall); load it verbatim, replacing only the arn placeholder.",
+  "hookConfig": [
+    {
+      "beforeToolCall": {
+        "name": "qa_tool_guard",
+        "target": {
+          "lambda": {
+            "arn": "<qa-tool-guard-function-arn>",
+            "timeoutSeconds": 5,
+            "failureMode": "deny"
+          }
+        }
+      }
+    }
+  ],
+  "deploy": {
+    "$comment": "Read by deploy_qa_tool_guard.py. The hook targets the alias, so a rollback moves the alias and never edits the harness. Fill hookConfig's arn from aliasArnTemplate at apply time; the public repo keeps the placeholder.",
+    "functionName": "qa-tool-guard",
+    "alias": "live",
+    "aliasArnTemplate": "arn:aws:lambda:{region}:{account}:function:qa-tool-guard:live",
+    "lambdaRoleName": "QaToolGuardLambdaRole",
+    "logRetentionDays": 30,
+    "runtime": "python3.12",
+    "architecture": "arm64",
+    "handler": "qa_tool_guard.lambda_handler",
+    "timeoutSeconds": 3,
+    "memoryMB": 256,
+    "harnesses": [
+      "UITestAgentHarness"
+    ],
+    "executionRoleGrantName": "QaToolGuardInvoke",
+    "alarmName": "qa-tool-guard-errors-throttles",
+    "alarmPeriodSeconds": 300,
+    "packageFiles": [
+      "qa_tool_guard.py",
+      "qa_tool_guard_spec.json"
+    ]
+  },
+  "failureMode": "deny",
+  "denyOnTruncation": true,
+  "decisionOnError": "deny",
+  "reasonMaxChars": 1024,
+  "forbiddenControls": [
+    "save",
+    "submit",
+    "add",
+    "create",
+    "update",
+    "apply",
+    "edit",
+    "remove",
+    "delete",
+    "sync",
+    "confirm",
+    "approve",
+    "reset",
+    "override"
+  ],
+  "dangerousStyles": [
+    "danger"
+  ],
+  "patterns": {
+    "signIn": "sign[\\s_-]?in|log[\\s_-]?in|type\\s*=\\s*[\"']?submit",
+    "credentialField": "e-?mail|password|\\buser(?:name)?\\b",
+    "nonGet": "(?:method[\"']?\\s*[:=]\\s*[\"'`]?|\\.open\\s*\\(\\s*[\"'`]|\\s-X\\s*|--request[\\s=]+|requests\\.)(?:post|put|patch|delete)\\b|\\.(?:submit|requestSubmit)\\s*\\(|sendBeacon",
+    "scriptClick": "\\.click\\s*\\(|dispatchEvent\\s*\\(",
+    "url": "\\b(?:https?|wss?|ftp)://[^\\s'\"`<>)\\]]+",
+    "shellBodyUpload": "\\bcurl\\b[^|;&\\n]*\\s(?:-d|-F|-T)(?=[\\s'\\\"@])|\\bcurl\\b[^|;&\\n]*\\s(?:--data[\\w-]*|--form|--upload-file|--json)\\b|\\bwget\\b[^|;&\\n]*--(?:post-data|post-file|method)\\b",
+    "$comment": "Kept consistent with token-monitoring ci-agent/qa_agent.py, except: credentialField has word boundaries (qa_agent's 'user' also matches 'Search users'), and shellBodyUpload is new (curl -d posts without -X)."
+  },
+  "origins": {
+    "env": "QA_ALLOWED_ORIGINS",
+    "$comment": "Comma-separated origins (scheme://host[:port]). An empty value allows no origin, so every navigation fails closed.",
+    "alwaysAllowedNavigations": [
+      "about:blank"
+    ],
+    "scriptUrlIgnorePrefixes": [
+      "http://www.w3.org/",
+      "https://www.w3.org/"
+    ]
+  },
+  "shellAllowedHostSuffixes": [
+    ".amazonaws.com"
+  ],
+  "strictSessionIdPattern": "-admin$",
+  "tools": {
+    "browser": {
+      "inputKey": "browser_input",
+      "allowedActions": [
+        "init_session",
+        "navigate",
+        "click",
+        "type",
+        "press_key",
+        "evaluate",
+        "execute_cdp",
+        "screenshot",
+        "get_text",
+        "get_html",
+        "list_tabs",
+        "list_local_sessions",
+        "switch_tab",
+        "new_tab",
+        "close_tab",
+        "back",
+        "forward",
+        "refresh",
+        "close",
+        "get_cookies"
+      ],
+      "allowedKeys": [
+        "Enter",
+        "Tab",
+        "Escape",
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "PageUp",
+        "PageDown",
+        "Home",
+        "End"
+      ],
+      "cdpReadOnlyMethods": [
+        "Page.captureScreenshot",
+        "DOM.getDocument",
+        "DOM.getOuterHTML",
+        "Accessibility.getFullAXTree"
+      ],
+      "$comment": "Any action carrying a url field (navigate, new_tab, ...) must target an allowed origin. type is limited to the sign-in fields only in the strict (admin) pass, matching qa_agent.py audit_actions; the viewer may type into filters.",
+      "strictAllowedActions": [
+        "init_session",
+        "navigate",
+        "click",
+        "type",
+        "screenshot",
+        "get_text",
+        "get_html",
+        "list_tabs",
+        "list_local_sessions",
+        "switch_tab",
+        "new_tab",
+        "close_tab",
+        "back",
+        "forward",
+        "refresh",
+        "close",
+        "get_cookies"
+      ]
+    },
+    "shell": {
+      "inputKey": "command"
+    },
+    "code_interpreter": {
+      "inputKey": "code_interpreter_input",
+      "codeKeys": [
+        "code",
+        "command"
+      ]
+    },
+    "readOnlyTools": [
+      "skills",
+      "read",
+      "retrieve_context"
+    ],
+    "file_operations": {
+      "$comment": "Deprecated twin of read/write/edit sent for harnesses created before 2026-11-12 until 2026-12-12 (docs). A deny on either event applies, so the twin of an allowed read must be allowed. Only view is a read. After removeAfter the harness sends only the new events: delete this entry, rule G05 and their cases; test_file_operations_allowance_sunset fails from that moment to force it.",
+      "allowedCommands": [
+        "view"
+      ],
+      "removeAfter": "2026-12-12T00:00:00Z"
+    }
+  },
+  "rules": {
+    "G00": "malformed hook payload",
+    "G01": "unexpected hook event",
+    "G02": "tool-call context truncated; cannot evaluate it",
+    "G03": "tool not on the guard's list",
+    "B01": "browser action not on the guard's list",
+    "B02": "click on a write-type control",
+    "B03": "admin pass: click other than Sign in",
+    "B04": "typing outside the sign-in fields",
+    "B05": "navigation off the allowed origins",
+    "B06": "key not on the guard's list",
+    "B07": "script clicks a write-type control or sends a non-GET request",
+    "B08": "script references an origin off the allowed list",
+    "B09": "admin pass: action outside its read-only list",
+    "B10": "CDP method not read-only",
+    "S01": "code sends a non-GET request or uploads a body",
+    "S02": "code references a host off the allowed list",
+    "G05": "deprecated file_operations event: only view is allowed",
+    "G09": "guard error; failing closed",
+    "A00": "allowed"
+  },
+  "logging": {
+    "$comment": "The handler logs one line per decision with these fields only. Tool input, typed text, scripts, code and results are never logged or echoed in a reason: they can hold the password.",
+    "fields": [
+      "hookEventId",
+      "toolName",
+      "action",
+      "strict",
+      "decision",
+      "rule"
+    ]
+  },
+  "assumptions": [
+    "sessionId in the hook payload is the caller's runtimeSessionId; qa_agent.py names the admin pass '<session>-admin'. Not stated in the docs; verify in the WS2 live run. If it is not, strict (admin) rules never apply and the admin pass falls back to the viewer rules.",
+    "The browser tool's toolName is 'browser' and its toolInput is {\"browser_input\": {\"action\": {\"type\", ...}}}. Its schema (a recorded gen_ai.tool.json_schema; VERIFICATION_issue_76.md counts the same 22 types) lists 22 action types: the 20 in allowedActions plus set_cookies and network_intercept, which the guard denies. Field names checked against it: navigate.url, click.selector, type.selector/text, evaluate.script, press_key.key, execute_cdp.method/params; new_tab takes tab_id (no url). A different shape fails closed (B01/G00)."
+  ],
+  "consumers": {
+    "$comment": "Once this hook is live, audits read its decisions instead of re-implementing these rules (plan WS2, red-team change 1). This file and the cases file remain the guard's own fixtures.",
+    "streamEvent": "hookEvent {hookEventId, name, type, decision, reason}",
+    "readonly": {
+      "violated": "any hookEvent with name == spec name, type == 'before_tool_call' and decision == 'deny' (the call was skipped, but the agent attempted it). Takes precedence over unobserved.",
+      "unobserved": "no deny, and the pass made no tool call, or fewer guard decisions (allow or deny) than tool calls: the hook is missing, misconfigured or skipped some calls. A deprecated file_operations twin adds a second decision for one call, so more decisions than calls is fine.",
+      "ok": "otherwise: every tool call has a guard decision and none is a deny"
+    },
+    "reasonFormat": "'<rule id>: <rule text>'; consumers may count denies by rule id from the reason prefix",
+    "transition": "Until the sessionId assumption is verified live, token-monitoring keeps its strict admin-pass audit (audit_actions strict=True) alongside the hookEvent check.",
+    "implementers": {
+      "token-monitoring ci-agent/qa_agent.py": "narrow",
+      "ops-console run_one_session": "commander"
+    },
+    "sdkRequirement": "botocore must know the hookEvent stream event and UpdateHarness.hooks. Checked 2026-11-28: present in botocore 1.43.120 (CI's pin) and 1.44.13, with hookEvent {hookEventId, name, type, decision, reason} and hook name max 64; absent in 1.43.68 and in aws-cli 2.36.30's bundled model. An older SDK fails UpdateHarness param validation, or never surfaces hookEvent, so the consumer reads 'unobserved' (red), not 'ok'. tighten_harness_config.py's MIN_BOTO3 (1.43.18) must rise before it sends hooks.",
+    "streamCases": "qa_tool_guard_stream_cases.json: whole InvokeHarness event streams with the expected consumer verdict; qa_tool_guard_consumer.py is the reference reader. Pins: SHA256SUMS.",
+    "counts": "toolCalls = contentBlockStart events whose start has toolUse; guardDecisions = the matching hookEvents with a decision; denies = deny count per rule id, read from the reason prefix '<rule id>:' ('?' when absent)"
+  }
+}
